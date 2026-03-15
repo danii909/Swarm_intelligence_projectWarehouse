@@ -108,6 +108,7 @@ class MatplotlibVisualizer(BaseVisualizer):
         self._agent_carry_dots: list = []
         self._obj_scatter = None
         self._comm_lines: list = []
+        self._comm_rects: list = []
         self._vision_circles: list = []
         self._battery_bars: list = []
         self._stats_texts: list = []
@@ -364,12 +365,16 @@ class MatplotlibVisualizer(BaseVisualizer):
                 vc.set_visible(agent.is_active)
 
     def _update_comm_lines(self, agents: List["Agent"]) -> None:
-        if not self.show_comm:
-            return
-        # Rimuovi le linee precedenti
+        # Rimuovi gli highlight precedenti
         for ln in self._comm_lines:
             ln.remove()
         self._comm_lines.clear()
+        for rect in self._comm_rects:
+            rect.remove()
+        self._comm_rects.clear()
+
+        if not self.show_comm:
+            return
 
         # Disegna linee tra agenti che comunicano questo tick
         n = len(agents)
@@ -382,6 +387,18 @@ class MatplotlibVisualizer(BaseVisualizer):
                 if not b.is_active:
                     continue
                 if can_communicate(a.pos, b.pos, min(a.comm_radius, b.comm_radius)):
+                    rect = mpatches.Rectangle(
+                        (min(a.col, b.col) - 0.5, min(a.row, b.row) - 0.5),
+                        abs(a.col - b.col) + 1,
+                        abs(a.row - b.row) + 1,
+                        facecolor="#4DD0E1",
+                        edgecolor="#00BCD4",
+                        linewidth=1.2,
+                        alpha=0.18,
+                        zorder=6.5,
+                    )
+                    self._ax_grid.add_patch(rect)
+                    self._comm_rects.append(rect)
                     ln = self._ax_grid.add_line(mlines.Line2D(
                         [a.col, b.col], [a.row, b.row],
                         color="cyan", alpha=0.4, linewidth=0.8,

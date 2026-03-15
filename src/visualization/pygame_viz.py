@@ -348,6 +348,7 @@ class PygameVisualizer(BaseVisualizer):
         pygame = self._pygame
         px = self.cell_px
         half = px // 2
+        surf = pygame.Surface(screen.get_size(), pygame.SRCALPHA)
         n = len(agents)
         for i in range(n):
             a = agents[i]
@@ -362,9 +363,16 @@ class PygameVisualizer(BaseVisualizer):
                     y1 = a.row * px + half
                     x2 = b.col * px + half
                     y2 = b.row * px + half
-                    surf = pygame.Surface(screen.get_size(), pygame.SRCALPHA)
+                    rect = pygame.Rect(
+                        min(a.col, b.col) * px,
+                        min(a.row, b.row) * px,
+                        (abs(a.col - b.col) + 1) * px,
+                        (abs(a.row - b.row) + 1) * px,
+                    )
+                    pygame.draw.rect(surf, (77, 208, 225, 45), rect)
+                    pygame.draw.rect(surf, (0, 188, 212, 180), rect, 2)
                     pygame.draw.line(surf, (*C_COMM_LINE, 120), (x1, y1), (x2, y2), 1)
-                    screen.blit(surf, (0, 0))
+        screen.blit(surf, (0, 0))
 
     def _draw_agents(self, screen, agents: List["Agent"]) -> None:
         pygame = self._pygame

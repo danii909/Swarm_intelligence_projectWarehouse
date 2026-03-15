@@ -194,10 +194,7 @@ class Simulator:
                     if self.verbose:
                         print(f"\nTutti gli oggetti consegnati al tick {self._tick}!")
                     break
-                if all(not a.is_active for a in self.agents):
-                    if self.verbose:
-                        print(f"\nTutti gli agenti esauriti al tick {self._tick}.")
-                    break
+                # batteria esaurita: la simulazione continua fino a max_ticks
 
         finally:
             self.metrics.finalize(self.agents)
@@ -206,6 +203,86 @@ class Simulator:
             if self.visualizer is not None:
                 self.visualizer.close()
         return self.metrics
+
+    # ------------------------------------------------------------------
+    # Generatore tick-by-tick (per UI in tempo reale)
+    # ------------------------------------------------------------------
+
+    def step_gen(self):
+        """
+        Generatore che esegue la simulazione un tick alla volta.
+        Ad ogni tick cede (tick, agents, env) per aggiornamenti UI.
+        Le metriche vengono finalizzate automaticamente al termine.
+        """
+        try:
+            while self._tick < self.max_ticks:
+                self._tick += 1
+                self.env.advance_tick()
+
+                # 1. Percezione
+                for agent in self.agents:
+                    if agent.is_active:
+                        agent.perceive(self.env)
+
+                # 1b. Aggiorna known_agents con agenti visibili direttamente
+                for agent in self.agents:
+                    if not agent.is_active:
+                        continue
+                    for other in self.agents:
+                        if other.id == agent.id or not other.is_active:
+                            continue
+                        dist = abs(other.row - agent.row) + abs(other.col - agent.col)
+                        if dist <= agent.visibility_radius:
+                            agent.known_agents[other.id] = (other.pos, self._tick)
+
+                # 2. Comunicazione
+                communicate_agents(self.agents)
+
+                # 3. Pianificazione mosse
+                _MAX_AGENT_INFO_AGE = 5
+                moves: Dict[int, Optional[Tuple[int, int]]] = {}
+                for agent in self.agents:
+                    if agent.is_active:
+                        locally_known = {
+                            pos
+                            for pos, tick in agent.known_agents.values()
+                            if self._tick - tick <= _MAX_AGENT_INFO_AGE
+                        } - {agent.pos}
+                        moves[agent.id] = agent.decide_next_move(
+                            self.env, self.pathfinder, locally_known
+                        )
+
+                # 4. Applica mosse
+                self._apply_moves(moves)
+
+                # 5. Raccolta / consegna oggetti
+                for agent in self.agents:
+                    if not agent.is_active:
+                        continue
+                    if agent.state == AgentState.EXITING_WAREHOUSE:
+                        if self.env.grid.cell(agent.row, agent.col) == CellType.EXIT:
+                            agent.state = AgentState.EXPLORING
+                    elif not agent.carrying_object:
+                        agent.pick_up(self.env)
+                    else:
+                        agent.deliver(self.env)
+
+                # 6. Metriche
+                log_this_tick = (self._tick % self.log_every == 0)
+                self.metrics.record_tick(
+                    self._tick, self.agents, self.env, log=log_this_tick
+                )
+
+                # 7. Cedi il controllo all'UI
+                yield self._tick, self.agents, self.env
+
+                # 8. Condizioni di terminazione
+                if self.env.all_delivered:
+                    break
+                # batteria esaurita: la simulazione continua fino a max_ticks
+
+        finally:
+            self.metrics.finalize(self.agents)
 
     # ------------------------------------------------------------------
     # Gestione collisioni
