@@ -23,8 +23,8 @@ from src.environment.environment import Environment
 from src.agents.agent import Agent
 from src.agents.strategies.random_walk import RandomWalkStrategy
 from src.agents.strategies.frontier import FrontierStrategy
-from src.agents.strategies.spiral import SpiralStrategy
-from src.agents.strategies.sector import SectorStrategy
+from src.agents.strategies.LévyFlight import LevyFlightStrategy
+from src.agents.strategies.Repulsion import RepulsionStrategy
 from src.agents.strategies.greedy import GreedyStrategy
 from src.simulation.simulator import Simulator
 
@@ -34,11 +34,11 @@ from src.simulation.simulator import Simulator
 # ---------------------------------------------------------------------------
 
 STRATEGIES = {
-    "RandomWalk": lambda n: [RandomWalkStrategy() for _ in range(n)],
-    "Frontier":   lambda n: [FrontierStrategy()   for _ in range(n)],
-    "Spiral":     lambda n: [SpiralStrategy()     for _ in range(n)],
-    "Sector":     lambda n: [SectorStrategy(num_agents=n) for _ in range(n)],
-    "Greedy":     lambda n: [GreedyStrategy()     for _ in range(n)],
+    "RandomWalk":  lambda n: [RandomWalkStrategy()  for _ in range(n)],
+    "Frontier":    lambda n: [FrontierStrategy()    for _ in range(n)],
+    "LevyFlight":  lambda n: [LevyFlightStrategy()  for _ in range(n)],
+    "Repulsion":   lambda n: [RepulsionStrategy()   for _ in range(n)],
+    "Greedy":      lambda n: [GreedyStrategy()      for _ in range(n)],
 }
 
 

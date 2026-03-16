@@ -40,21 +40,21 @@ st.set_page_config(
 # ---------------------------------------------------------------------------
 
 STRATEGIES = {
-    0: ("Frontier",       "Esplorazione frontier-based sistematica"),
-    1: ("FrontierGreedy", "Greedy verso oggetti noti, fallback frontier"),
-    2: ("Sector",         "Suddivide la griglia in settori assegnati"),
-    3: ("Spiral",         "Movimento a spirale verso l'esterno"),
-    4: ("Random",         "Passeggiata casuale"),
+    0: ("Frontier",    "Esplorazione frontier-based sistematica"),
+    1: ("Greedy",      "Greedy su costo totale consegna + cerca agenti"),
+    2: ("Repulsion",   "Dispersione emergente lontano dagli agenti noti"),
+    3: ("LevyFlight",  "Salti adattativi: locale se zona nuova, lontano se satura"),
+    4: ("Random",      "Passeggiata casuale"),
 }
 
 DEFAULT_RADIUS = {0: 2, 1: 3, 2: 2, 3: 1, 4: 1}
 
 STRATEGY_COLORS = {
-    "Frontier":       "#4C72B0",
-    "FrontierGreedy": "#DD8452",
-    "Sector":         "#55A868",
-    "Spiral":         "#C44E52",
-    "Random":         "#8172B2",
+    "Frontier":    "#4C72B0",
+    "Greedy":      "#DD8452",
+    "Repulsion":   "#55A868",
+    "LevyFlight":  "#C44E52",
+    "Random":      "#8172B2",
 }
 
 # ---------------------------------------------------------------------------
@@ -484,15 +484,15 @@ def _build_agents(agent_configs: list, num_agents: int):
     from src.agents.agent import Agent
     from src.agents.strategies.frontier import FrontierStrategy
     from src.agents.strategies.greedy import GreedyStrategy
-    from src.agents.strategies.sector import SectorStrategy
-    from src.agents.strategies.spiral import SpiralStrategy
+    from src.agents.strategies.Repulsion import RepulsionStrategy
+    from src.agents.strategies.LévyFlight import LevyFlightStrategy
     from src.agents.strategies.random_walk import RandomWalkStrategy
 
     factories = {
         0: lambda: FrontierStrategy(),
         1: lambda: GreedyStrategy(),
-        2: lambda: SectorStrategy(num_agents=num_agents),
-        3: lambda: SpiralStrategy(),
+        2: lambda: RepulsionStrategy(),
+        3: lambda: LevyFlightStrategy(),
         4: lambda: RandomWalkStrategy(),
     }
 
@@ -513,12 +513,7 @@ def _render_battery_html(agents, agent_configs) -> str:
     strat_by_id = {cfg["agent_id"]: STRATEGIES[cfg["strategy_id"]][0] for cfg in agent_configs}
 
     html_parts = []
-    html_parts.append(
-        "<div style='background:#1a1a2e; border-radius:8px; padding:10px; "
-        "border:1px solid #333;'>"
-        "<div style='color:#ccc; font-size:0.85em; font-weight:bold; "
-        "margin-bottom:8px;'>🔋 Batteria agenti</div>"
-    )
+
     for i, agent in enumerate(agents):
         pct = max(agent.battery / INITIAL_BATTERY, 0.0)
         pct_display = pct * 100
@@ -536,18 +531,18 @@ def _render_battery_html(agents, agent_configs) -> str:
         radii_label = f"(v{agent.visibility_radius}, c{agent.comm_radius})"
 
         html_parts.append(
-            f"<div style='margin-bottom:6px;'>"
+            f"<div style='margin-bottom:8px; padding:8px; border:1px solid #2e3342; border-radius:8px; background:#161b28;'>"
             f"  <div style='display:flex; justify-content:space-between; "
-            f"       align-items:center; margin-bottom:2px;'>"
+            f"       align-items:center; margin-bottom:6px;'>"
             f"    <span style='display:inline-flex; align-items:center; gap:6px;'>"
             f"      <span style='background:{agent_color}; color:{agent_text_color}; border:1px solid #000; border-radius:999px; padding:2px 8px; font-size:0.78em; font-weight:bold;'>A{agent.id + 1}</span>"
             f"      <span style='color:#cfd3d8; font-size:0.78em;'>{strat_name}</span>"
             f"      <span style='color:#8ea2b3; font-size:0.72em;'>{radii_label}</span>"
             f"    </span>"
             f"    <span style='color:#999; font-size:0.7em;'>"
-            f"      {agent.battery}/{INITIAL_BATTERY} — {state_label}</span>"
+            f"      🔋{agent.battery}/{INITIAL_BATTERY} — {state_label}</span>"
             f"  </div>"
-            f"  <div style='background:#333; border-radius:4px; height:10px; overflow:hidden;'>"
+            f"  <div style='background:#333; border-radius:4px; height:10px; overflow:hidden; margin-top:2px;'>"
             f"    <div style='background:{bar_color}; width:{pct_display:.1f}%; "
             f"         height:100%; border-radius:4px; transition: width 0.3s ease;'></div>"
             f"  </div>"

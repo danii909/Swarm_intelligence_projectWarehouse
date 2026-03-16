@@ -21,8 +21,8 @@ from src.environment.grid import CellType
 from src.agents.agent import Agent, AgentState
 from src.agents.strategies.random_walk import RandomWalkStrategy
 from src.agents.strategies.frontier import FrontierStrategy
-from src.agents.strategies.spiral import SpiralStrategy
-from src.agents.strategies.sector import SectorStrategy
+from src.agents.strategies.LévyFlight import LevyFlightStrategy
+from src.agents.strategies.Repulsion import RepulsionStrategy
 from src.agents.strategies.greedy import GreedyStrategy
 from src.communication.protocol import communicate_agents
 from src.pathfinding.pathfinder import Pathfinder
@@ -38,8 +38,8 @@ def _create_default_agents(num_agents: int = 5) -> List[Agent]:
     strategies = [
         RandomWalkStrategy(),
         FrontierStrategy(),
-        SpiralStrategy(),
-        SectorStrategy(num_agents=num_agents),
+        LevyFlightStrategy(),
+        RepulsionStrategy(),
         GreedyStrategy(),
     ]
     agents = []

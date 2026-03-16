@@ -8,8 +8,8 @@ from src.agents.agent import Agent, AgentState
 from src.agents.sensors import compute_visible_cells, can_communicate
 from src.agents.strategies.random_walk import RandomWalkStrategy
 from src.agents.strategies.frontier import FrontierStrategy
-from src.agents.strategies.spiral import SpiralStrategy
-from src.agents.strategies.sector import SectorStrategy
+from src.agents.strategies.LévyFlight import LevyFlightStrategy
+from src.agents.strategies.Repulsion import RepulsionStrategy
 from src.agents.strategies.greedy import GreedyStrategy
 from src.environment.grid import Grid, CellType
 
@@ -106,7 +106,7 @@ def test_agent_communicate_out_of_range():
 @pytest.mark.parametrize("StratClass", [
     RandomWalkStrategy,
     FrontierStrategy,
-    SpiralStrategy,
+    LevyFlightStrategy,
     GreedyStrategy,
 ])
 def test_strategy_returns_valid_move(StratClass):
@@ -127,13 +127,13 @@ def test_strategy_returns_valid_move(StratClass):
 
 
 @pytest.mark.skipif(not os.path.exists(INSTANCE_A), reason="Consegna/A.json not found")
-def test_sector_strategy_returns_valid_move():
+def test_repulsion_strategy_returns_valid_move():
     from src.environment.environment import Environment
     from src.pathfinding.pathfinder import Pathfinder
 
     env = Environment.from_json(INSTANCE_A)
     pathfinder = Pathfinder(env.grid)
-    agent = Agent(agent_id=2, strategy=SectorStrategy(num_agents=5))
+    agent = Agent(agent_id=2, strategy=RepulsionStrategy())
     agent.perceive(env)
 
     move = agent.decide_next_move(env, pathfinder, set())
