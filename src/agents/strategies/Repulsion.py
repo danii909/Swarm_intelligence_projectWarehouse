@@ -64,7 +64,26 @@ class RepulsionStrategy(ExplorationStrategy):
             free = [n for n in neighbors if n not in occupied]
             return random.choice(free) if free else (random.choice(neighbors) if neighbors else None)
 
-        best = max(frontiers, key=lambda p: self._score(p, agent, known_positions))
+        row, col = agent.row, agent.col
+        if known_positions:
+            known_count = len(known_positions)
+
+            def score(frontier: Tuple[int, int]) -> float:
+                fr, fc = frontier
+                isolation = sum(
+                    abs(fr - pr) + abs(fc - pc)
+                    for pr, pc in known_positions
+                ) / known_count
+                travel = abs(fr - row) + abs(fc - col)
+                return isolation - travel
+        else:
+            # Con zero agenti noti: isolation=0, massimizzare score equivale
+            # minimizzare la distanza da me (stesso comportamento della formula).
+            def score(frontier: Tuple[int, int]) -> float:
+                fr, fc = frontier
+                return -(abs(fr - row) + abs(fc - col))
+
+        best = max(frontiers, key=score)
         return pathfinder.next_step(agent.pos, best, occupied - {agent.pos})
 
     # ------------------------------------------------------------------

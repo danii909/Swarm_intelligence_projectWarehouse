@@ -103,20 +103,21 @@ class LevyFlightStrategy(ExplorationStrategy):
         Sceglie casualmente una cella EMPTY inesplorata a distanza Manhattan
         >= _JUMP_MIN_DIST. Se non ne esistono, ritorna qualsiasi inesplorata.
         """
-        far: list = []
-        near: list = []
+        far: list[Tuple[int, int]] = []
+        near: list[Tuple[int, int]] = []
         r, c = agent.pos
-        for tr in range(env.grid.size):
-            for tc in range(env.grid.size):
-                if env.grid.cell(tr, tc) != CellType.EMPTY:
-                    continue
-                if (tr, tc) in agent.local_map:
-                    continue
-                dist = abs(tr - r) + abs(tc - c)
-                if dist >= self._JUMP_MIN_DIST:
-                    far.append((tr, tc))
-                else:
-                    near.append((tr, tc))
+        local_map = agent.local_map
+        min_dist = self._JUMP_MIN_DIST
+
+        # Itera solo su celle EMPTY statiche e filtra quelle gia' note localmente.
+        for tr, tc in env.empty_cells:
+            if (tr, tc) in local_map:
+                continue
+            dist = abs(tr - r) + abs(tc - c)
+            if dist >= min_dist:
+                far.append((tr, tc))
+            else:
+                near.append((tr, tc))
         if far:
             return random.choice(far)
         return random.choice(near) if near else None

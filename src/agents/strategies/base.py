@@ -108,12 +108,8 @@ class ExplorationStrategy(ABC):
         Celle EMPTY globali non ancora presenti nella mappa locale.
         Helper mantenuto anche per compatibilita' con strategie legacy.
         """
-        return {
-            (r, c)
-            for r in range(env.grid.size)
-            for c in range(env.grid.size)
-            if env.grid.cell(r, c) == CellType.EMPTY and (r, c) not in agent.local_map
-        }
+        # Usa la cache statica dell'ambiente per evitare full-scan per tick.
+        return set(env.empty_cells - agent.local_map.keys())
 
     @property
     def name(self) -> str:

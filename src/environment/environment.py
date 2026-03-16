@@ -67,6 +67,13 @@ class Environment:
         self._initial_total: int = len(self._objects)
         self.delivered: int = 0
         self.tick: int = 0
+        # Griglia statica: cache delle celle EMPTY per evitare scansioni ripetute.
+        self._empty_cells: frozenset[Tuple[int, int]] = frozenset(
+            (r, c)
+            for r in range(self.grid.size)
+            for c in range(self.grid.size)
+            if self.grid.cell(r, c) == CellType.EMPTY
+        )
 
     # ------------------------------------------------------------------
     # Caricamento da file JSON
@@ -159,6 +166,11 @@ class Environment:
     @property
     def all_delivered(self) -> bool:
         return self.delivered == self._initial_total
+
+    @property
+    def empty_cells(self) -> frozenset[Tuple[int, int]]:
+        """Celle EMPTY statiche della griglia (cache)."""
+        return self._empty_cells
 
     def nearest_warehouse_entrance(
         self, row: int, col: int
