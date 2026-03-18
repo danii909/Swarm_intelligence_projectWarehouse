@@ -46,7 +46,7 @@ def communicate_agents(agents: List["Agent"]) -> int:
 
 
 def _exchange(a: "Agent", b: "Agent") -> None:
-    """Merge bidirezionale di mappa locale, oggetti noti e posizioni agenti."""
+    """Merge bidirezionale di mappa, copertura, oggetti e posizioni agenti."""
     # Merge mappa locale
     merged_map = {**b.local_map, **a.local_map}
     a.local_map = merged_map.copy()
@@ -56,6 +56,19 @@ def _exchange(a: "Agent", b: "Agent") -> None:
     merged_objects = a.known_objects | b.known_objects
     a.known_objects = merged_objects.copy()
     b.known_objects = merged_objects.copy()
+
+    # Merge copertura percettiva (celle gia' osservate)
+    merged_seen = a.seen_cells | b.seen_cells
+    a.seen_cells = merged_seen.copy()
+    b.seen_cells = merged_seen.copy()
+
+    # Per ogni cella teniamo il tick osservato piu' recente
+    merged_last_seen = dict(a.cell_last_seen)
+    for pos, tick in b.cell_last_seen.items():
+        if merged_last_seen.get(pos, -1) < tick:
+            merged_last_seen[pos] = tick
+    a.cell_last_seen = merged_last_seen.copy()
+    b.cell_last_seen = merged_last_seen.copy()
 
     # Merge posizioni agenti noti: per ogni ID teniamo la voce più recente
     merged_agents = dict(a.known_agents)

@@ -29,7 +29,7 @@ class ExplorationStrategy(ABC):
     """
 
     def __init__(self) -> None:
-        # Cache frontiere: {agent_id: (frontier_set, map_size_al_calcolo)}
+        # Cache frontiere di copertura: {agent_id: (frontier_set, seen_size_al_calcolo)}
         self._frontier_cache: Dict[int, Tuple[Set, int]] = {}
 
     @abstractmethod
@@ -85,28 +85,32 @@ class ExplorationStrategy(ABC):
         env: "Environment",
     ) -> Set[Tuple[int, int]]:
         """
-        Celle EMPTY già esplorate nella mappa locale che hanno almeno
-        un vicino non ancora esplorato. Cached per agent_id finché
-        local_map non cresce (ricalcolo solo quando si esplora).
+        Frontiere di copertura: celle EMPTY gia' viste che confinano con
+        celle EMPTY non ancora viste. Cached per agent_id finche' seen_cells
+        non cresce.
         """
-        map_size = len(agent.local_map)
+        seen_size = len(agent.seen_cells)
         cached = self._frontier_cache.get(agent.id)
-        if cached is not None and cached[1] == map_size:
+        if cached is not None and cached[1] == seen_size:
             return cached[0]
 
         frontiers: Set[Tuple[int, int]] = set()
-        local_map = agent.local_map
+        seen_cells = agent.seen_cells
         in_bounds = env.grid.in_bounds
-        for (r, c), cell_type in local_map.items():
-            if cell_type != CellType.EMPTY:
+        for r, c in seen_cells:
+            if env.grid.cell(r, c) != CellType.EMPTY:
                 continue
             for dr, dc in DIRECTIONS:
                 nr, nc = r + dr, c + dc
-                if (nr, nc) not in local_map and in_bounds(nr, nc):
+                if not in_bounds(nr, nc):
+                    continue
+                if env.grid.cell(nr, nc) != CellType.EMPTY:
+                    continue
+                if (nr, nc) not in seen_cells:
                     frontiers.add((r, c))
                     break
 
-        self._frontier_cache[agent.id] = (frontiers, map_size)
+        self._frontier_cache[agent.id] = (frontiers, seen_size)
         return frontiers
 
     def _unexplored_empty(
@@ -115,12 +119,54 @@ class ExplorationStrategy(ABC):
         env: "Environment",
     ) -> Set[Tuple[int, int]]:
         """
-        Compat helper: restituisce le frontiere locali non ancora coperte.
+        Celle candidate per la ricerca pacchi non ancora osservate.
 
-        Nota: non usa conoscenza globale della mappa per evitare leakage
-        informativo fuori dal raggio di visione/comunicazione.
+        La mappa e' nota a priori, ma i pacchi no: la copertura si misura
+        sulle celle EMPTY gia' scansionate via sensori.
         """
-        return self._find_frontiers(agent, env)
+        return set(env.grid.empty_cells) - agent.seen_cells
+
+    def _stale_empty(
+        self,
+        agent: "Agent",
+        env: "Environment",
+        min_age: int = 12,
+    ) -> Set[Tuple[int, int]]:
+        """
+        Celle EMPTY osservate in passato ma non recentemente.
+
+        Usata come fallback quando tutta la mappa e' stata vista almeno una volta.
+        """
+        tick = env.tick
+        stale: Set[Tuple[int, int]] = set()
+        for pos in env.grid.empty_cells:
+            last_seen = agent.cell_last_seen.get(pos)
+            if last_seen is None:
+                continue
+            if tick - last_seen >= min_age:
+                stale.add(pos)
+        return stale
+
+    def _coverage_targets(
+        self,
+        agent: "Agent",
+        env: "Environment",
+    ) -> Set[Tuple[int, int]]:
+        """
+        Target di ricerca ordinati per priorita':
+          1. Celle EMPTY mai osservate
+          2. Celle EMPTY stale (non viste da un po')
+          3. Tutte le celle EMPTY (patrolling)
+        """
+        unseen = self._unexplored_empty(agent, env)
+        if unseen:
+            return unseen
+
+        stale = self._stale_empty(agent, env, min_age=max(8, env.grid.size // 2))
+        if stale:
+            return stale
+
+        return set(env.grid.empty_cells)
 
     @property
     def name(self) -> str:

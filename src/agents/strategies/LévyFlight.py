@@ -56,11 +56,11 @@ class LevyFlightStrategy(ExplorationStrategy):
                 if step:
                     return step
 
-        # --- Esplorazione locale: frontiera più vicina ---
-        frontiers = self._find_frontiers(agent, env)
-        if frontiers:
+        # --- Esplorazione locale: target di copertura piu' vicino ---
+        targets = self._coverage_targets(agent, env)
+        if targets:
             best = min(
-                frontiers,
+                targets,
                 key=lambda p: abs(p[0] - agent.row) + abs(p[1] - agent.col),
             )
             step = pathfinder.next_step(agent.pos, best, occupied - {agent.pos})
@@ -76,15 +76,12 @@ class LevyFlightStrategy(ExplorationStrategy):
 
     def _local_density(self, agent: "Agent", env: "Environment") -> float:
         """
-        Frazione di celle nel raggio di visibilità che l'agente conosce gia'.
-
-        Nota: usa solo local_map (conoscenza locale/comunicata) e non legge
-        direttamente i tipi cella globali per evitare leakage informativo.
+        Frazione di celle nel raggio di visibilita' gia' scansionate per oggetti.
         """
         r, c = agent.pos
         radius = agent.visibility_radius
         size = env.grid.size
-        local_map = agent.local_map
+        seen_cells = agent.seen_cells
         total = known = 0
         for dr in range(-radius, radius + 1):
             for dc in range(-radius, radius + 1):
@@ -93,7 +90,7 @@ class LevyFlightStrategy(ExplorationStrategy):
                 nr, nc = r + dr, c + dc
                 if 0 <= nr < size and 0 <= nc < size:
                     total += 1
-                    if (nr, nc) in local_map:
+                    if (nr, nc) in seen_cells:
                         known += 1
         return known / total if total > 0 else 1.0
 
@@ -101,20 +98,17 @@ class LevyFlightStrategy(ExplorationStrategy):
         self, agent: "Agent", env: "Environment"
     ) -> Optional[Tuple[int, int]]:
         """
-        Sceglie una frontiera locale distante a sufficienza.
-
-        Nota: evita l'uso di celle EMPTY globali per non introdurre
-        conoscenza fuori raggio nell'agente.
+        Sceglie un target di copertura distante a sufficienza.
         """
         r, c = agent.pos
         min_dist = self._JUMP_MIN_DIST
-        frontiers = self._find_frontiers(agent, env)
-        if not frontiers:
+        targets = self._coverage_targets(agent, env)
+        if not targets:
             return None
-        far = [p for p in frontiers if abs(p[0] - r) + abs(p[1] - c) >= min_dist]
+        far = [p for p in targets if abs(p[0] - r) + abs(p[1] - c) >= min_dist]
         if far:
             return random.choice(far)
-        return random.choice(list(frontiers))
+        return random.choice(list(targets))
 
 
 # Alias per compatibilità con il codice esistente

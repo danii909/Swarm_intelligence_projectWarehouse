@@ -37,6 +37,13 @@ class RandomWalkStrategy(ExplorationStrategy):
         if move:
             return move
 
+        targets = self._coverage_targets(agent, env)
+        if targets:
+            target = random.choice(list(targets))
+            step = pathfinder.next_step(agent.pos, target, occupied - {agent.pos})
+            if step:
+                return step
+
         neighbors = env.grid.walkable_neighbors(agent.row, agent.col)
         free = [n for n in neighbors if n not in occupied]
         if free:

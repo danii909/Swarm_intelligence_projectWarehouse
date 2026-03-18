@@ -12,6 +12,7 @@ from src.agents.strategies.LévyFlight import LevyFlightStrategy
 from src.agents.strategies.Repulsion import RepulsionStrategy
 from src.agents.strategies.greedy import GreedyStrategy
 from src.environment.grid import Grid, CellType
+from src.environment.environment import Environment
 
 INSTANCE_A = os.path.join(os.path.dirname(__file__), "..", "Consegna", "A.json")
 
@@ -98,6 +99,31 @@ def test_agent_communicate_out_of_range():
     a.communicate_with(b)
     # Nessun merge: troppo lontani
     assert (5, 5) not in a.local_map
+
+
+def test_agent_bootstrap_known_map_populates_all_cells():
+    grid = _make_open_grid(5)
+    env = Environment(grid=grid, warehouses=[], objects_truth=set())
+    a = Agent(agent_id=0, strategy=RandomWalkStrategy())
+
+    a.bootstrap_known_map(env)
+
+    assert len(a.local_map) == 25
+    assert all(cell == CellType.EMPTY for cell in a.local_map.values())
+
+
+def test_perceive_tracks_seen_cells_and_last_seen_tick():
+    grid = _make_open_grid(5)
+    env = Environment(grid=grid, warehouses=[], objects_truth=set())
+    a = Agent(agent_id=0, strategy=FrontierStrategy(), visibility_radius=1)
+    a.bootstrap_known_map(env)
+
+    env.tick = 7
+    visible = a.perceive(env)
+
+    assert visible
+    assert a.seen_cells == visible
+    assert all(a.cell_last_seen[pos] == 7 for pos in visible)
 
 
 # --- Strategie ---

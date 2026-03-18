@@ -1,14 +1,19 @@
 """
 Classe principale dell'agente autonomo.
 
+Nel setup corrente gli agenti conoscono a priori la mappa statica
+(muri, corridoi, porte, magazzini), ma non conoscono la posizione
+degli oggetti finche' non li osservano.
+
 Ogni agente ha:
-  - Posizione corrente
-  - Batteria (500 unità, -1 per mossa)
-  - Mappa locale esplorabile (celle viste + tipo cella)
-  - Insieme di oggetti noti (rilevati ma non ancora raccolt)
-  - Stato interno (esplora / trasporta / consegna / fermo)
-  - Strategia di esplorazione (iniettata alla creazione)
-  - Raggio di visibilità e comunicazione
+    - Posizione corrente
+    - Batteria (500 unita', -1 per mossa)
+    - Mappa locale dei tipi cella (nota via bootstrap e condivisa)
+    - Copertura percettiva delle celle gia' scansionate per oggetti
+    - Insieme di oggetti noti (rilevati ma non ancora raccolti)
+    - Stato interno (esplora / trasporta / consegna / fermo)
+    - Strategia di esplorazione (iniettata alla creazione)
+    - Raggio di visibilita' e comunicazione
 """
 
 from __future__ import annotations
@@ -63,6 +68,11 @@ class Agent:
         # Mappa locale: (row, col) → CellType
         self.local_map: Dict[Tuple[int, int], CellType] = {}
 
+        # Celle gia' osservate almeno una volta per ricerca oggetti
+        self.seen_cells: Set[Tuple[int, int]] = set()
+        # Ultimo tick in cui ciascuna cella e' stata osservata
+        self.cell_last_seen: Dict[Tuple[int, int], int] = {}
+
         # Oggetti rilevati ma non ancora raccolti
         self.known_objects: Set[Tuple[int, int]] = set()
 
@@ -96,6 +106,19 @@ class Agent:
     # Percezione
     # ------------------------------------------------------------------
 
+    def bootstrap_known_map(self, env: "Environment") -> None:
+        """
+        Inizializza la conoscenza statica della mappa globale.
+
+        Questa operazione non rivela oggetti: popola solo i tipi cella.
+        """
+        size = env.grid.size
+        self.local_map = {
+            (r, c): env.grid.cell(r, c)
+            for r in range(size)
+            for c in range(size)
+        }
+
     def perceive(self, env: "Environment") -> Set[Tuple[int, int]]:
         """
         Calcola le celle visibili, aggiorna la mappa locale e
@@ -109,6 +132,8 @@ class Agent:
         # Aggiorna mappa locale
         for (r, c) in visible:
             self.local_map[(r, c)] = env.grid.cell(r, c)
+            self.seen_cells.add((r, c))
+            self.cell_last_seen[(r, c)] = env.tick
 
         # Rileva oggetti nel campo visivo
         detected = env.sense_objects(visible)
@@ -196,6 +221,16 @@ class Agent:
         other.local_map.update(self.local_map)
         self.known_objects.update(other.known_objects)
         other.known_objects.update(self.known_objects)
+
+        self.seen_cells.update(other.seen_cells)
+        other.seen_cells.update(self.seen_cells)
+
+        for pos, tick in other.cell_last_seen.items():
+            if self.cell_last_seen.get(pos, -1) < tick:
+                self.cell_last_seen[pos] = tick
+        for pos, tick in self.cell_last_seen.items():
+            if other.cell_last_seen.get(pos, -1) < tick:
+                other.cell_last_seen[pos] = tick
 
     # ------------------------------------------------------------------
     # Decisione (delegata alla strategia)

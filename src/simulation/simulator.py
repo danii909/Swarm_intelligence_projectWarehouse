@@ -90,6 +90,10 @@ class Simulator:
         self.log_every = log_every
         self.visualizer = visualizer
 
+        # Nuova ipotesi: la mappa statica e' nota a priori a tutti gli agenti.
+        for agent in self.agents:
+            agent.bootstrap_known_map(env)
+
         self.pathfinder = Pathfinder(env.grid)
         self.metrics = Metrics()
         self.metrics.initialize(self.agents, env.total_objects)

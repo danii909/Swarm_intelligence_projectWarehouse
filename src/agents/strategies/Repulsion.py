@@ -51,20 +51,13 @@ class RepulsionStrategy(ExplorationStrategy):
             pos for pos, _tick in agent.known_agents.values()
         ]
 
-        # --- Frontiere nella mappa locale ---
-        frontiers = self._find_frontiers(agent, env)
-
-        if not frontiers:
-            # Nessuna frontiera locale: considera tutte le celle EMPTY inesplorate
-            frontiers = self._unexplored_empty(agent, env)
-
-        if not frontiers:
-            # Tutto esplorato: random walk
+        targets = self._coverage_targets(agent, env)
+        if not targets:
             neighbors = env.grid.walkable_neighbors(agent.row, agent.col)
             free = [n for n in neighbors if n not in occupied]
             return random.choice(free) if free else (random.choice(neighbors) if neighbors else None)
 
-        best = max(frontiers, key=lambda p: self._score(p, agent, known_positions))
+        best = max(targets, key=lambda p: self._score(p, agent, known_positions))
         return pathfinder.next_step(agent.pos, best, occupied - {agent.pos})
 
     # ------------------------------------------------------------------

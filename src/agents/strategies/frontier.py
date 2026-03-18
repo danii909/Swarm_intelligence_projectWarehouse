@@ -37,15 +37,38 @@ class FrontierStrategy(ExplorationStrategy):
         if move:
             return move
 
-        frontiers = self._find_frontiers(agent, env)
-        if not frontiers:
-            # Mappa completamente esplorata: random walk locale
+        targets = self._coverage_targets(agent, env)
+        if not targets:
             neighbors = env.grid.walkable_neighbors(agent.row, agent.col)
             free = [n for n in neighbors if n not in occupied]
             return free[0] if free else (neighbors[0] if neighbors else None)
 
+        unseen = self._unexplored_empty(agent, env)
         best = min(
-            frontiers,
-            key=lambda p: abs(p[0] - agent.row) + abs(p[1] - agent.col),
+            targets,
+            key=lambda p: (
+                abs(p[0] - agent.row) + abs(p[1] - agent.col),
+                -self._information_gain(p, agent, env, unseen),
+            ),
         )
         return pathfinder.next_step(agent.pos, best, occupied - {agent.pos})
+
+    def _information_gain(
+        self,
+        target: Tuple[int, int],
+        agent: "Agent",
+        env: "Environment",
+        unseen: Set[Tuple[int, int]],
+    ) -> int:
+        """Stima quante celle non viste ricadono nel prossimo campo visivo."""
+        radius = agent.visibility_radius
+        tr, tc = target
+        gain = 0
+        for dr in range(-radius, radius + 1):
+            for dc in range(-radius, radius + 1):
+                if abs(dr) + abs(dc) > radius:
+                    continue
+                nr, nc = tr + dr, tc + dc
+                if (nr, nc) in unseen and env.grid.in_bounds(nr, nc):
+                    gain += 1
+        return gain
