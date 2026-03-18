@@ -17,13 +17,13 @@ import random
 from typing import Dict, List, Optional, Set, Tuple, TYPE_CHECKING
 
 from src.environment.environment import Environment
-from src.environment.grid import CellType
+from src.environment.grid import CellType, Grid
 from src.agents.agent import Agent, AgentState
-from src.agents.strategies.random_walk import RandomWalkStrategy
 from src.agents.strategies.frontier import FrontierStrategy
-from src.agents.strategies.spiral import SpiralStrategy
-from src.agents.strategies.sector import SectorStrategy
-from src.agents.strategies.greedy import GreedyStrategy
+from src.agents.strategies.nearest_unvisited import NearestUnvisitedStrategy
+from src.agents.strategies.warehouse_centric import WarehouseCentricStrategy
+from src.agents.strategies.voronoi_zoning import VoronoiZoningStrategy
+from src.agents.strategies.wall_follower import WallFollowerStrategy
 from src.communication.protocol import communicate_agents
 from src.pathfinding.pathfinder import Pathfinder
 from src.simulation.metrics import Metrics
@@ -33,21 +33,40 @@ from src.simulation.metrics import Metrics
 # Factory agenti di default
 # ---------------------------------------------------------------------------
 
-def _create_default_agents(num_agents: int = 5) -> List[Agent]:
-    """Crea 5 agenti, uno per strategia, con raggio visibilità variato."""
+def _create_default_agents(num_agents: int = 5, grid: Optional[Grid] = None) -> List[Agent]:
+    """
+    Crea 5 agenti, uno per strategia, con raggio visibilità variato.
+
+    Le 5 strategie sono:
+    - FrontierStrategy: sistematico, espansione da frontiere
+    - NearestUnvisitedStrategy: greedy puro, distanza minima
+    - WarehouseCentricStrategy: onde concentriche da warehouse
+    - VoronoiZoningStrategy: divisione cooperativa spazio
+    - WallFollowerStrategy: segue perimetri e bordi
+
+    Args:
+        num_agents: Numero di agenti da creare (default 5)
+        grid: Grid dell'ambiente (necessario per inizializzare la mappa locale)
+
+    Raises:
+        ValueError: Se grid non è fornito
+    """
+    if grid is None:
+        raise ValueError("grid parameter is required for agent initialization")
+
     strategies = [
-        RandomWalkStrategy(),
         FrontierStrategy(),
-        SpiralStrategy(),
-        SectorStrategy(num_agents=num_agents),
-        GreedyStrategy(),
+        NearestUnvisitedStrategy(),
+        WarehouseCentricStrategy(),
+        VoronoiZoningStrategy(),
+        WallFollowerStrategy(),
     ]
     agents = []
     for i in range(num_agents):
         strategy = strategies[i % len(strategies)]
         # Raggio di visibilità varia tra 1 e 3
         vis_radius = 1 + (i % 3)
-        agents.append(Agent(agent_id=i, strategy=strategy, visibility_radius=vis_radius))
+        agents.append(Agent(agent_id=i, strategy=strategy, grid=grid, visibility_radius=vis_radius))
     return agents
 
 
@@ -84,7 +103,7 @@ class Simulator:
             random.seed(seed)
 
         self.env = env
-        self.agents: List[Agent] = agents or _create_default_agents()
+        self.agents: List[Agent] = agents or _create_default_agents(num_agents=5, grid=env.grid)
         self.max_ticks = max_ticks
         self.verbose = verbose
         self.log_every = log_every

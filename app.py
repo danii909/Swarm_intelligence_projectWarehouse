@@ -40,21 +40,21 @@ st.set_page_config(
 # ---------------------------------------------------------------------------
 
 STRATEGIES = {
-    0: ("Frontier",       "Esplorazione frontier-based sistematica"),
-    1: ("FrontierGreedy", "Greedy verso oggetti noti, fallback frontier"),
-    2: ("Sector",         "Suddivide la griglia in settori assegnati"),
-    3: ("Spiral",         "Movimento a spirale verso l'esterno"),
-    4: ("Random",         "Passeggiata casuale"),
+    0: ("Frontier",           "Espansione sistematica da frontiere"),
+    1: ("NearestUnvisited",   "Greedy: sempre verso cella non visitata più vicina"),
+    2: ("WarehouseCentric",   "Onde concentriche partendo dai magazzini"),
+    3: ("VoronoiZoning",      "Divisione cooperativa con celle di Voronoi"),
+    4: ("WallFollower",       "Segue perimetri e bordi"),
 }
 
-DEFAULT_RADIUS = {0: 2, 1: 3, 2: 2, 3: 1, 4: 1}
+DEFAULT_RADIUS = {0: 2, 1: 3, 2: 2, 3: 1, 4: 2}
 
 STRATEGY_COLORS = {
-    "Frontier":       "#4C72B0",
-    "FrontierGreedy": "#DD8452",
-    "Sector":         "#55A868",
-    "Spiral":         "#C44E52",
-    "Random":         "#8172B2",
+    "Frontier":           "#4C72B0",  # Blue - systematic
+    "NearestUnvisited":   "#55A868",  # Green - simple greedy
+    "WarehouseCentric":   "#DD8452",  # Orange - warehouse-focused
+    "VoronoiZoning":      "#C44E52",  # Red - cooperative
+    "WallFollower":       "#8172B2",  # Purple - geometric pattern
 }
 
 # ---------------------------------------------------------------------------
@@ -479,21 +479,28 @@ def _render_frame(
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _build_agents(agent_configs: list, num_agents: int):
-    """Costruisce la lista di Agent dalla configurazione UI."""
+def _build_agents(agent_configs: list, num_agents: int, env):
+    """
+    Costruisce la lista di Agent dalla configurazione UI.
+
+    Args:
+        agent_configs: Configurazione agenti dall'UI
+        num_agents: Numero totale di agenti
+        env: Environment object (necessario per fornire la griglia agli agenti)
+    """
     from src.agents.agent import Agent
     from src.agents.strategies.frontier import FrontierStrategy
-    from src.agents.strategies.greedy import GreedyStrategy
-    from src.agents.strategies.sector import SectorStrategy
-    from src.agents.strategies.spiral import SpiralStrategy
-    from src.agents.strategies.random_walk import RandomWalkStrategy
+    from src.agents.strategies.nearest_unvisited import NearestUnvisitedStrategy
+    from src.agents.strategies.warehouse_centric import WarehouseCentricStrategy
+    from src.agents.strategies.voronoi_zoning import VoronoiZoningStrategy
+    from src.agents.strategies.wall_follower import WallFollowerStrategy
 
     factories = {
         0: lambda: FrontierStrategy(),
-        1: lambda: GreedyStrategy(),
-        2: lambda: SectorStrategy(num_agents=num_agents),
-        3: lambda: SpiralStrategy(),
-        4: lambda: RandomWalkStrategy(),
+        1: lambda: NearestUnvisitedStrategy(),
+        2: lambda: WarehouseCentricStrategy(),
+        3: lambda: VoronoiZoningStrategy(),
+        4: lambda: WallFollowerStrategy(),
     }
 
     agents = []
@@ -502,6 +509,7 @@ def _build_agents(agent_configs: list, num_agents: int):
         agents.append(Agent(
             agent_id=cfg["agent_id"],
             strategy=strategy,
+            grid=env.grid,
             visibility_radius=cfg["radius"],
             comm_radius=cfg.get("comm_radius", 2),
         ))
@@ -766,7 +774,7 @@ with tab_sim:
                 from src.environment.environment import Environment
 
                 env_preview = Environment.from_json(instance_path)
-                preview_agents = _build_agents(agent_configs, len(agent_configs))
+                preview_agents = _build_agents(agent_configs, len(agent_configs), env_preview)
                 total_objects_preview = str(env_preview.total_objects)
 
                 preview_agent_icon = _load_uploaded_pygame_icon(agent_icon_upload)
@@ -808,7 +816,7 @@ with tab_sim:
         from src.simulation.simulator import Simulator
 
         env_obj = Environment.from_json(instance_path)
-        built_agents = _build_agents(agent_configs, len(agent_configs))
+        built_agents = _build_agents(agent_configs, len(agent_configs), env_obj)
         _seed = seed if seed >= 0 else None
 
         sim = Simulator(
@@ -1123,7 +1131,7 @@ with tab_bench:
                 })
 
             env_obj = Environment.from_json(instance_path)
-            built_agents = _build_agents(agent_cfgs, bench_num_agents)
+            built_agents = _build_agents(agent_cfgs, bench_num_agents, env_obj)
 
             sim = Simulator(
                 env=env_obj,

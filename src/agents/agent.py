@@ -16,7 +16,7 @@ from __future__ import annotations
 from enum import Enum, auto
 from typing import Dict, Optional, Set, Tuple, TYPE_CHECKING
 
-from src.environment.grid import CellType
+from src.environment.grid import CellType, Grid
 from src.agents.sensors import compute_visible_cells, can_communicate
 
 if TYPE_CHECKING:
@@ -45,6 +45,7 @@ class Agent:
         self,
         agent_id: int,
         strategy: "ExplorationStrategy",
+        grid: "Grid",
         visibility_radius: int = VISIBILITY_RADIUS,
         comm_radius: int = COMM_RADIUS,
     ) -> None:
@@ -61,7 +62,11 @@ class Agent:
         self.carrying_object: bool = False
 
         # Mappa locale: (row, col) → CellType
+        # Pre-popolata con conoscenza completa del terreno
         self.local_map: Dict[Tuple[int, int], CellType] = {}
+
+        # Celle visitate (per tracciare la copertura della ricerca oggetti)
+        self.visited_cells: Set[Tuple[int, int]] = set()
 
         # Oggetti rilevati ma non ancora raccolti
         self.known_objects: Set[Tuple[int, int]] = set()
@@ -79,6 +84,25 @@ class Agent:
         self._delivery_target: Optional[Tuple[int, int]] = None
         # Porta di uscita del magazzino corrente (impostata quando si entra)
         self._exit_target: Optional[Tuple[int, int]] = None
+
+        # Inizializza conoscenza completa del terreno
+        self._initialize_map_knowledge(grid)
+
+    # ------------------------------------------------------------------
+    # Inizializzazione mappa
+    # ------------------------------------------------------------------
+
+    def _initialize_map_knowledge(self, grid: "Grid") -> None:
+        """
+        Pre-popola local_map con conoscenza completa del terreno.
+
+        Secondo le specifiche del progetto, la mappa dell'ambiente
+        (terreno, ostacoli, magazzini) è nota agli agenti fin dall'inizio.
+        Solo la posizione degli oggetti deve essere scoperta.
+        """
+        for r in range(grid.size):
+            for c in range(grid.size):
+                self.local_map[(r, c)] = grid.cell(r, c)
 
     # ------------------------------------------------------------------
     # Posizione
@@ -98,17 +122,19 @@ class Agent:
 
     def perceive(self, env: "Environment") -> Set[Tuple[int, int]]:
         """
-        Calcola le celle visibili, aggiorna la mappa locale e
-        rileva eventuali oggetti nel campo visivo.
+        Calcola le celle visibili, traccia le celle visitate per la ricerca oggetti,
+        e rileva eventuali oggetti nel campo visivo.
         Restituisce l'insieme delle celle visibili.
+
+        Nota: la mappa locale è già completa, quindi perceive() non aggiorna
+        il terreno ma solo traccia quali aree sono state cercate per oggetti.
         """
         visible = compute_visible_cells(
             env.grid, self.row, self.col, self.visibility_radius
         )
 
-        # Aggiorna mappa locale
-        for (r, c) in visible:
-            self.local_map[(r, c)] = env.grid.cell(r, c)
+        # Traccia celle visitate (per copertura ricerca oggetti)
+        self.visited_cells.update(visible)
 
         # Rileva oggetti nel campo visivo
         detected = env.sense_objects(visible)
@@ -194,6 +220,8 @@ class Agent:
         # Merge bidirezionale
         self.local_map.update(other.local_map)
         other.local_map.update(self.local_map)
+        self.visited_cells.update(other.visited_cells)
+        other.visited_cells.update(self.visited_cells)
         self.known_objects.update(other.known_objects)
         other.known_objects.update(self.known_objects)
 

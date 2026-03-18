@@ -21,11 +21,11 @@ from typing import Dict, List
 
 from src.environment.environment import Environment
 from src.agents.agent import Agent
-from src.agents.strategies.random_walk import RandomWalkStrategy
 from src.agents.strategies.frontier import FrontierStrategy
-from src.agents.strategies.spiral import SpiralStrategy
-from src.agents.strategies.sector import SectorStrategy
-from src.agents.strategies.greedy import GreedyStrategy
+from src.agents.strategies.nearest_unvisited import NearestUnvisitedStrategy
+from src.agents.strategies.warehouse_centric import WarehouseCentricStrategy
+from src.agents.strategies.voronoi_zoning import VoronoiZoningStrategy
+from src.agents.strategies.wall_follower import WallFollowerStrategy
 from src.simulation.simulator import Simulator
 
 
@@ -34,11 +34,11 @@ from src.simulation.simulator import Simulator
 # ---------------------------------------------------------------------------
 
 STRATEGIES = {
-    "RandomWalk": lambda n: [RandomWalkStrategy() for _ in range(n)],
-    "Frontier":   lambda n: [FrontierStrategy()   for _ in range(n)],
-    "Spiral":     lambda n: [SpiralStrategy()     for _ in range(n)],
-    "Sector":     lambda n: [SectorStrategy(num_agents=n) for _ in range(n)],
-    "Greedy":     lambda n: [GreedyStrategy()     for _ in range(n)],
+    "Frontier":          lambda n: [FrontierStrategy()          for _ in range(n)],
+    "NearestUnvisited":  lambda n: [NearestUnvisitedStrategy()  for _ in range(n)],
+    "WarehouseCentric":  lambda n: [WarehouseCentricStrategy()  for _ in range(n)],
+    "VoronoiZoning":     lambda n: [VoronoiZoningStrategy()     for _ in range(n)],
+    "WallFollower":      lambda n: [WallFollowerStrategy()      for _ in range(n)],
 }
 
 
@@ -61,6 +61,7 @@ def run_once(
         Agent(
             agent_id=i,
             strategy=strategies[i],
+            grid=env.grid,
             visibility_radius=visibility_radius,
         )
         for i in range(num_agents)

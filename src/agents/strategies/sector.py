@@ -1,9 +1,12 @@
 """
-Strategia 4 — Copertura per Settori.
+Strategia 4 — Copertura per Settori (RepulsionStrategy).
 
 La griglia viene suddivisa in settori assegnati agli agenti (in base al loro ID).
-Ogni agente esplora il proprio settore prima di muoversi
-verso settori adiacenti non esplorati.
+Ogni agente cerca nel proprio settore prima di muoversi
+verso settori adiacenti non ancora visitati.
+
+Nota: la mappa del terreno è completa fin dall'inizio. I settori
+rappresentano aree di responsabilità per la ricerca di oggetti.
 """
 
 from __future__ import annotations
@@ -23,7 +26,7 @@ NUM_SECTORS_SIDE = 2   # divide la griglia in 2x2 = 4 settori + centro
 
 class SectorStrategy(ExplorationStrategy):
     """
-    Divide la griglia in settori; l'agente si specializza sul settore
+    Divide la griglia in settori; l'agente cerca nel settore
     corrispondente al proprio ID (mod numero settori).
     """
 
@@ -62,27 +65,27 @@ class SectorStrategy(ExplorationStrategy):
         if not self._sector_cells:
             self._sector_cells = self._compute_sector(agent.id, env)
 
-        # Scegli la cella del settore non ancora esplorata più vicina
-        unexplored = [
+        # Scegli la cella del settore non ancora visitata più vicina
+        unvisited = [
             c for c in self._sector_cells
-            if c not in agent.local_map
+            if c not in agent.visited_cells
         ]
-        if not unexplored:
-            # Settore esplorato: esplora l'intera griglia come frontier
-            unexplored = [
+        if not unvisited:
+            # Settore visitato: cerca nell'intera griglia
+            unvisited = [
                 (r, c)
                 for r in range(env.grid.size)
                 for c in range(env.grid.size)
-                if (r, c) not in agent.local_map
+                if (r, c) not in agent.visited_cells
                 and env.grid.cell(r, c) == CellType.EMPTY
             ]
 
-        if not unexplored:
-            # Tutto esplorato
+        if not unvisited:
+            # Tutto visitato
             return None
 
         best = min(
-            unexplored,
+            unvisited,
             key=lambda p: abs(p[0] - agent.row) + abs(p[1] - agent.col),
         )
         return pathfinder.next_step(agent.pos, best, occupied - {agent.pos})

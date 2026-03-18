@@ -20,13 +20,17 @@ class ExplorationStrategy(ABC):
     l'agente deve restare fermo per questo tick.
 
     La strategia può usare:
-      - agent.local_map    — celle esplorate finora dall'agente
+      - agent.local_map    — conoscenza completa del terreno (pre-popolata all'inizio)
+      - agent.visited_cells — celle che sono state nel campo visivo (cercate per oggetti)
       - agent.known_objects — oggetti noti non ancora raccolti
       - agent.pos          — posizione corrente
       - agent.carrying_object
       - env.grid           — mappa globale (solo per walkability)
       - pathfinder         — per calcolare percorsi
       - occupied           — posizioni occupate da altri agenti (anti-collisione)
+
+    Nota: La mappa del terreno (EMPTY, WALL, WAREHOUSE, ecc.) è completamente nota
+    fin dall'inizio. L'esplorazione consiste nel cercare oggetti in un terreno noto.
     """
 
     @abstractmethod
