@@ -517,12 +517,7 @@ def _render_battery_html(agents, agent_configs) -> str:
     strat_by_id = {cfg["agent_id"]: STRATEGIES[cfg["strategy_id"]][0] for cfg in agent_configs}
 
     html_parts = []
-    html_parts.append(
-        "<div style='background:#1a1a2e; border-radius:8px; padding:10px; "
-        "border:1px solid #333;'>"
-        "<div style='color:#ccc; font-size:0.85em; font-weight:bold; "
-        "margin-bottom:8px;'>🔋 Batteria agenti</div>"
-    )
+
     for i, agent in enumerate(agents):
         pct = max(agent.battery / INITIAL_BATTERY, 0.0)
         pct_display = pct * 100
@@ -540,18 +535,18 @@ def _render_battery_html(agents, agent_configs) -> str:
         radii_label = f"(v{agent.visibility_radius}, c{agent.comm_radius})"
 
         html_parts.append(
-            f"<div style='margin-bottom:6px;'>"
+            f"<div style='margin-bottom:8px; padding:8px; border:1px solid #2e3342; border-radius:8px; background:#161b28;'>"
             f"  <div style='display:flex; justify-content:space-between; "
-            f"       align-items:center; margin-bottom:2px;'>"
+            f"       align-items:center; margin-bottom:6px;'>"
             f"    <span style='display:inline-flex; align-items:center; gap:6px;'>"
             f"      <span style='background:{agent_color}; color:{agent_text_color}; border:1px solid #000; border-radius:999px; padding:2px 8px; font-size:0.78em; font-weight:bold;'>A{agent.id + 1}</span>"
             f"      <span style='color:#cfd3d8; font-size:0.78em;'>{strat_name}</span>"
             f"      <span style='color:#8ea2b3; font-size:0.72em;'>{radii_label}</span>"
             f"    </span>"
             f"    <span style='color:#999; font-size:0.7em;'>"
-            f"      {agent.battery}/{INITIAL_BATTERY} — {state_label}</span>"
+            f"      🔋{agent.battery}/{INITIAL_BATTERY} — {state_label}</span>"
             f"  </div>"
-            f"  <div style='background:#333; border-radius:4px; height:10px; overflow:hidden;'>"
+            f"  <div style='background:#333; border-radius:4px; height:10px; overflow:hidden; margin-top:2px;'>"
             f"    <div style='background:{bar_color}; width:{pct_display:.1f}%; "
             f"         height:100%; border-radius:4px; transition: width 0.3s ease;'></div>"
             f"  </div>"
@@ -560,6 +555,19 @@ def _render_battery_html(agents, agent_configs) -> str:
 
     html_parts.append("</div>")
     return "".join(html_parts)
+
+
+def _render_status_card_html(title: str, value: str, accent: str) -> str:
+    """Genera una card HTML per metriche compatte (Tick/Consegnati)."""
+    return (
+        "<div style='"
+        "padding:10px; border:1px solid #2e3342; border-radius:8px; "
+        "background:#161b28; min-height:50px; display:flex; flex-direction:column; "
+        "justify-content:center; margin-bottom:12px;'>"
+        f"<div style='font-size:0.78em; color:#8ea2b3; margin-bottom:4px;'>{title}</div>"
+        f"<div style='font-size:1.35em; font-weight:700; color:{accent}; line-height:1.1;'>{value}</div>"
+        "</div>"
+    )
 
 
 def _style_dark_chart(ax):
@@ -752,9 +760,12 @@ with tab_sim:
 
     # ---- Colonna destra: metriche live e batterie ----
     with col_status:
-        tick_ph    = st.empty()
+        top_left, top_right = st.columns(2)
+        with top_left:
+            tick_ph = st.empty()
+        with top_right:
+            stats_ph = st.empty()
         prog_ph    = st.empty()
-        stats_ph   = st.empty()
         battery_ph = st.empty()
 
     # -------------------------------------------------------------------
@@ -792,9 +803,17 @@ with tab_sim:
         else:
             frame_ph.info("Seleziona un file istanza valido per vedere l'anteprima.")
 
-        tick_ph.metric("Tick", 0)
+        tick_ph.markdown(
+            _render_status_card_html("Tick", "0", "#4C72B0"),
+            unsafe_allow_html=True,
+        )
+        stats_ph.markdown(
+            _render_status_card_html("Consegnati", f"0 / {total_objects_preview}", "#55A868"),
+            unsafe_allow_html=True,
+        )
+
         prog_ph.progress(0.0, text=f"Tick 0/{max_ticks}")
-        stats_ph.metric("Consegnati", f"0 / {total_objects_preview}")
+        
         if preview_agents:
             battery_ph.markdown(
                 _render_battery_html(preview_agents, agent_configs),
@@ -849,10 +868,17 @@ with tab_sim:
                         min(tick / max_ticks, 1.0),
                         text=f"Tick {tick}/{max_ticks}",
                     )
-                    tick_ph.metric("Tick", tick)
-                    stats_ph.metric(
-                        "Consegnati",
-                        f"{cur_env.delivered} / {cur_env.total_objects}",
+                    tick_ph.markdown(
+                        _render_status_card_html("Tick", str(tick), "#4C72B0"),
+                        unsafe_allow_html=True,
+                    )
+                    stats_ph.markdown(
+                        _render_status_card_html(
+                            "Consegnati",
+                            f"{cur_env.delivered} / {cur_env.total_objects}",
+                            "#55A868",
+                        ),
+                        unsafe_allow_html=True,
                     )
                     battery_ph.markdown(
                         _render_battery_html(cur_agents, agent_configs),
