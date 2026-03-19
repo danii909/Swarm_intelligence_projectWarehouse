@@ -1023,74 +1023,189 @@ with tab_sim:
 # ===================================================================
 
 with tab_bench:
-    st.caption("Genera N preset casuali variando il comportamento di ogni agente.")
+    st.subheader("Benchmark preset casuali")
+    st.caption("Genera configurazioni casuali per il team di agenti variando strategia, visione e comunicazione.")
 
-    col_left, col_mid, col_right = st.columns(3)
+    # ---------------------------
+    # Layout principale
+    # ---------------------------
+    left_col, right_col = st.columns([1.6, 1], gap="large")
 
-    with col_left:
-        with st.expander("⚙️ Parametri generali", expanded=False):
-            bench_num_agents   = st.slider("N. agenti",    min_value=1,   max_value=10,  value=5,      key="bench_num_agents")
-            bench_max_ticks    = st.slider("Tick massimi", min_value=100, max_value=750, value=500, step=50, key="bench_max_ticks")
-            
-    with col_mid:
-        with st.expander("🎲 Randomizzazione", expanded=False):
-            st.markdown("**Strategia**")
-            rand_strat = st.toggle("Randomizza strategia", value=True, key="rand_strat")
-            if rand_strat:
-                bench_strategies   = st.multiselect(
+    with left_col:
+        st.markdown("### Configurazione")
+
+        # ---- Parametri generali ----
+        with st.container(border=True):
+            st.markdown("#### Parametri generali")
+            g1, g2 = st.columns(2)
+
+            with g1:
+                bench_num_agents = st.slider(
+                    "N. agenti",
+                    min_value=1,
+                    max_value=10,
+                    value=5,
+                    key="bench_num_agents"
+                )
+
+            with g2:
+                bench_max_ticks = st.slider(
+                    "Tick massimi",
+                    min_value=100,
+                    max_value=750,
+                    value=500,
+                    step=50,
+                    key="bench_max_ticks"
+                )
+
+        st.markdown("")
+
+        # ---- Strategie ----
+        with st.container(border=True):
+            st.markdown("#### Strategie")
+
+            strat_mode = st.segmented_control(
+                "Modalità strategia",
+                options=["Casuale", "Fissa"],
+                default="Casuale",
+                key="bench_strat_mode"
+            )
+
+            if strat_mode == "Casuale":
+                bench_strategies = st.multiselect(
                     "Strategie possibili",
                     options=[f"{sid} — {name}" for sid, (name, _) in STRATEGIES.items()],
                     default=[f"{sid} — {name}" for sid, (name, _) in STRATEGIES.items()],
                     key="bench_strats",
+                    placeholder="Seleziona almeno una strategia"
                 )
                 bench_strategy_ids = [int(s.split(" — ")[0]) for s in bench_strategies]
             else:
-                fixed_strat_label  = st.selectbox(
+                fixed_strat_label = st.selectbox(
                     "Strategia fissa",
                     options=[f"{sid} — {name}" for sid, (name, _) in STRATEGIES.items()],
-                    index=1, key="bench_fixed_strat",
+                    index=1,
+                    key="bench_fixed_strat",
                 )
                 bench_strategy_ids = [int(fixed_strat_label.split(" — ")[0])]
 
-            st.markdown("**Raggi**")
-            rand_vis = st.toggle("Raggio visione casuale", value=True, key="rand_vis")
-            if rand_vis:
-                bench_vis_range = st.slider("Range visione", min_value=1, max_value=5, value=(1, 3), key="bench_vis_range")
-                vis_values = list(range(bench_vis_range[0], bench_vis_range[1] + 1))
+        st.markdown("")
+
+        # ---- Raggi ----
+        with st.container(border=True):
+            st.markdown("#### Raggi")
+
+            r1, r2 = st.columns(2, gap="large")
+
+            with r1:
+                st.markdown("**Visione**")
+                vis_mode = st.segmented_control(
+                    "Modalità visione",
+                    options=["Casuale", "Fissa"],
+                    default="Casuale",
+                    key="bench_vis_mode"
+                )
+
+                if vis_mode == "Casuale":
+                    bench_vis_range = st.slider(
+                        "Range visione",
+                        min_value=1,
+                        max_value=5,
+                        value=(1, 3),
+                        key="bench_vis_range"
+                    )
+                    vis_values = list(range(bench_vis_range[0], bench_vis_range[1] + 1))
+                else:
+                    fixed_vis = st.slider(
+                        "Visione fissa",
+                        min_value=1,
+                        max_value=5,
+                        value=2,
+                        key="bench_fixed_vis"
+                    )
+                    vis_values = [fixed_vis]
+
+            with r2:
+                st.markdown("**Comunicazione**")
+                comm_mode = st.segmented_control(
+                    "Modalità comunicazione",
+                    options=["Casuale", "Fissa"],
+                    default="Casuale",
+                    key="bench_comm_mode"
+                )
+
+                if comm_mode == "Casuale":
+                    bench_comm_range = st.slider(
+                        "Range comunicazione",
+                        min_value=1,
+                        max_value=2,
+                        value=(1, 2),
+                        key="bench_comm_range"
+                    )
+                    comm_values = list(range(bench_comm_range[0], bench_comm_range[1] + 1))
+                else:
+                    fixed_comm = st.slider(
+                        "Comunicazione fissa",
+                        min_value=1,
+                        max_value=2,
+                        value=2,
+                        key="bench_fixed_comm"
+                    )
+                    comm_values = [fixed_comm]
+
+    # ---------------------------
+    # Calcoli riepilogo
+    # ---------------------------
+    choices_per_agent = len(bench_strategy_ids) * len(vis_values) * len(comm_values)
+    max_unique_presets = choices_per_agent ** bench_num_agents if choices_per_agent > 0 else 0
+
+    with right_col:
+        st.markdown("### Esecuzione")
+
+        with st.container(border=True):
+            st.markdown("#### Riepilogo spazio di ricerca")
+
+            m1, m2 = st.columns(2)
+            with m1:
+                st.metric("Scelte per agente", choices_per_agent)
+            with m2:
+                st.metric("Preset unici max", max_unique_presets)
+
+            st.markdown("")
+
+            default_bench_n = min(20, max_unique_presets) if max_unique_presets > 0 else 1
+
+            bench_n = st.number_input(
+                "N. preset da testare",
+                min_value=1,
+                max_value=max_unique_presets if max_unique_presets > 0 else 1,
+                value=default_bench_n,
+                step=1,
+                key="bench_n",
+                help="Numero di configurazioni casuali da eseguire senza duplicati, fin dove possibile."
+            )
+
+            st.markdown("")
+
+            bench_clicked = st.button(
+                "▶ Avvia benchmark",
+                type="primary",
+                use_container_width=True,
+                key="bench_run"
+            )
+
+            if bench_strategy_ids:
+                selected_names = [STRATEGIES[sid][0] for sid in bench_strategy_ids]
+                st.caption(
+                    f"Strategie selezionate: {', '.join(selected_names)} · "
+                    f"Visione: {vis_values} · Comunicazione: {comm_values}"
+                )
             else:
-                vis_values = [st.slider("Visione fissa", min_value=1, max_value=5, value=2, key="bench_fixed_vis")]
+                st.caption("Nessuna strategia selezionata.")
 
-            rand_comm = st.toggle("Raggio comunicazione casuale", value=True, key="rand_comm")
-            if rand_comm:
-                bench_comm_range = st.slider("Range comunicazione", min_value=1, max_value=2, value=(1, 2), key="bench_comm_range")
-                comm_values = list(range(bench_comm_range[0], bench_comm_range[1] + 1))
-            else:
-                comm_values = [st.slider("Comunicazione fissa", min_value=1, max_value=2, value=2, key="bench_fixed_comm")]
-
-    # ---- Colonna destra: esecuzione ----
-    choices_per_agent  = len(bench_strategy_ids) * len(vis_values) * len(comm_values)
-    max_unique_presets = choices_per_agent ** bench_num_agents
-
-    with col_right:
-        st.markdown(f"**Preset generati**: fino a {max_unique_presets} combinazioni uniche.")
-
-        bench_n = st.number_input(
-            "N. preset da testare",
-            min_value=1,
-            max_value=max_unique_presets,
-            value=min(20, max_unique_presets),
-            step=1,
-            key="bench_n"
-        )
-
-        bench_clicked = st.button(
-            "▶ Avvia benchmark",
-            type="primary",
-            width="stretch",
-            key="bench_run"
-        )
-
-
+    # ---------------------------
+    # Esecuzione benchmark
+    # ---------------------------
     if bench_clicked:
         if not bench_strategy_ids:
             st.error("Seleziona almeno una strategia.")
@@ -1103,32 +1218,30 @@ with tab_bench:
         from src.environment.environment import Environment
         from src.simulation.simulator import Simulator
 
-        # --- Genera preset casuali ---
         actual_n = min(bench_n, max_unique_presets)
         rng = _random.Random(seed if seed >= 0 else None)
 
-        # Ogni preset è una tupla di (strategy_id, vis, comm) per ogni agente
         per_agent_space = list(itertools.product(bench_strategy_ids, vis_values, comm_values))
         generated_presets = []
         seen_signatures = set()
 
         if actual_n >= max_unique_presets:
-            # Enumera tutti
             for combo in itertools.product(per_agent_space, repeat=bench_num_agents):
                 generated_presets.append(list(combo))
         else:
-            # Campiona senza duplicati
             attempts = 0
             max_attempts = actual_n * 50
             while len(generated_presets) < actual_n and attempts < max_attempts:
                 preset = tuple(rng.choice(per_agent_space) for _ in range(bench_num_agents))
-                sig = preset  # tuple of tuples, hashable
-                if sig not in seen_signatures:
-                    seen_signatures.add(sig)
+                if preset not in seen_signatures:
+                    seen_signatures.add(preset)
                     generated_presets.append(list(preset))
                 attempts += 1
 
         actual_n = len(generated_presets)
+
+        st.markdown("---")
+        st.markdown("### Avanzamento benchmark")
 
         bench_progress = st.progress(0.0, text="Avvio benchmark...")
         bench_status = st.empty()
@@ -1139,7 +1252,6 @@ with tab_bench:
         for sim_i, preset in enumerate(generated_presets):
             preset_name = f"Preset {sim_i + 1}"
 
-            # Costruisci configurazione agenti da questo preset
             agent_cfgs = []
             for ai, (strat_id, vis_r, comm_r) in enumerate(preset):
                 agent_cfgs.append({
@@ -1169,21 +1281,18 @@ with tab_bench:
             m = sim.metrics
             s = m.summary()
 
-            # Descrizione compatta del preset
             config_parts = []
             for ai, (strat_id, vis_r, comm_r) in enumerate(preset):
                 sn = STRATEGIES[strat_id][0][:4]
                 config_parts.append(f"A{ai + 1}:{sn}(v{vis_r},c{comm_r})")
             config_str = " ".join(config_parts)
 
-            # Conteggio strategie nel team
             strat_counts = {}
             for strat_id, _, _ in preset:
                 sname = STRATEGIES[strat_id][0]
                 strat_counts[sname] = strat_counts.get(sname, 0) + 1
             team_desc = " + ".join(f"{cnt}×{sn}" for sn, cnt in sorted(strat_counts.items()))
 
-            # Raggi medi del team
             avg_vis = np.mean([vis_r for _, vis_r, _ in preset])
             avg_comm = np.mean([comm_r for _, _, comm_r in preset])
 
@@ -1204,14 +1313,15 @@ with tab_bench:
             })
 
             pct = (sim_i + 1) / actual_n
-            bench_progress.progress(pct, text=f"Preset {sim_i+1}/{actual_n}")
-            bench_status.markdown(
-                f"**{preset_name}** — {team_desc} — "
-                f"{s['objects_delivered']}/{s['total_objects']} in {s['total_ticks']} tick"
+            bench_progress.progress(pct, text=f"Preset {sim_i + 1}/{actual_n}")
+            bench_status.info(
+                f"{preset_name} · {team_desc} · "
+                f"{s['objects_delivered']}/{s['total_objects']} oggetti · "
+                f"{s['total_ticks']} tick"
             )
 
         total_bench_time = time.perf_counter() - t0_bench
-        bench_progress.progress(1.0, text="Benchmark completato!")
+        bench_progress.progress(1.0, text="Benchmark completato")
         bench_status.empty()
 
         st.session_state["bench_results"] = {
