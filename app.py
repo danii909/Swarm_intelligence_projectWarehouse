@@ -664,7 +664,7 @@ with tab_sim:
     # -------------------------------------------------------------------
     # Layout 3 colonne: [config agenti | simulazione | barre stato]
     # -------------------------------------------------------------------
-    col_cfg, col_sim, col_status = st.columns([2, 3, 2])
+    col_cfg, col_sim, col_status = st.columns([2, 4, 2])
 
     # ---- Colonna sinistra: configurazione agenti ----
     with col_cfg:
