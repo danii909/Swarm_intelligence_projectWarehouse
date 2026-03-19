@@ -10,6 +10,7 @@ import base64
 import io
 import itertools
 import json
+import math
 import sys
 import os
 import time
@@ -93,9 +94,9 @@ _PYGAME_FONT = None
 _STREAMLIT_CELL_PX = 28
 _STREAMLIT_BG = (15, 15, 40)
 _STREAMLIT_GRID = (100, 100, 100)
-_STREAMLIT_COMM_FILL = (30, 144, 255, 50)    # blu (tipo dodger blue, leggero)
-_STREAMLIT_COMM_BORDER = (0, 0, 139, 200)    # blu scuro deciso
-_STREAMLIT_COMM_LINE = (0, 0, 139, 200)   # stesso blu del fill, più visibile
+_STREAMLIT_COMM_FILL = (30, 144, 255, 50)
+_STREAMLIT_COMM_BORDER = (0, 0, 139, 200)
+_STREAMLIT_COMM_LINE = (0, 0, 139, 200)
 
 
 # ---------------------------------------------------------------------------
@@ -135,6 +136,7 @@ def _agent_label_hex(color_hex: str) -> str:
     rgb = tuple(int(color_hex[i:i + 2], 16) for i in (0, 2, 4))
     label_rgb = _agent_label_rgb(rgb)
     return "#FFFFFF" if label_rgb == (255, 255, 255) else "#000000"
+
 
 def _load_icon_image(path_str: str):
     """Carica un'immagine icona da path locale. Ritorna None se non valida."""
@@ -531,7 +533,7 @@ def _render_battery_html(agents, agent_configs) -> str:
         agent_color = _AGENT_PALETTE[i % len(_AGENT_PALETTE)]
         agent_text_color = _agent_label_hex(agent_color)
         state_label = agent.state.name.replace("_", " ").title()
-        strat_name  = strat_by_id.get(agent.id, "?")
+        strat_name = strat_by_id.get(agent.id, "?")
         radii_label = f"(v{agent.visibility_radius}, c{agent.comm_radius})"
 
         html_parts.append(
@@ -578,27 +580,127 @@ def _style_dark_chart(ax):
     ax.tick_params(colors="#aaa", labelsize=7)
 
 
-def _grouped_stats(df: pd.DataFrame, group_col: str, metric_cols: list) -> pd.DataFrame:
-    """Calcola mean/min/max/std raggruppando per group_col."""
-    agg_dict = {}
+def _safe_norm(series: pd.Series, invert: bool = False) -> pd.Series:
+    s = pd.to_numeric(series, errors="coerce").astype(float)
+    if s.isna().all():
+        out = pd.Series([0.0] * len(s), index=s.index)
+    else:
+        s_min = s.min()
+        s_max = s.max()
+        if math.isclose(s_max, s_min):
+            out = pd.Series([0.0] * len(s), index=s.index)
+        else:
+            out = (s - s_min) / (s_max - s_min)
+    return 1.0 - out if invert else out
+
+
+def _compute_composite_score(
+    df: pd.DataFrame,
+    w_delivery: float = 0.55,
+    w_ticks: float = 0.25,
+    w_energy: float = 0.20,
+) -> pd.Series:
+    delivery_term = _safe_norm(df["delivery_rate"], invert=False)
+    ticks_term = _safe_norm(df["total_ticks"], invert=True)
+    energy_term = _safe_norm(df["average_energy"], invert=True)
+    score = (w_delivery * delivery_term) + (w_ticks * ticks_term) + (w_energy * energy_term)
+    return score.round(4)
+
+
+def _grouped_stats(df: pd.DataFrame, group_col: str, metric_cols: list[str]) -> pd.DataFrame:
+    """Statistiche raggruppate sui preset unici che contengono il fattore."""
+    if df.empty:
+        return pd.DataFrame()
+
+    agg_map = {"preset_name": pd.Series.nunique}
     for col in metric_cols:
-        agg_dict[col] = ["mean", "min", "max", "std"]
-    grouped = df.groupby(group_col).agg(agg_dict)
-    grouped.columns = [f"{col} {stat}" for col, stat in grouped.columns]
-    # Round
-    for c in grouped.columns:
-        grouped[c] = grouped[c].apply(lambda x: round(x, 2))
-    grouped.insert(0, "N simulazioni", df.groupby(group_col).size())
-    return grouped
+        agg_map[col] = ["mean", "median", "std"]
+
+    grouped = df.groupby(group_col).agg(agg_map)
+    grouped.columns = [
+        "N preset" if a == "preset_name" else f"{a} {b}"
+        for a, b in grouped.columns
+    ]
+    grouped = grouped.reset_index()
+
+    for col in grouped.columns:
+        if pd.api.types.is_numeric_dtype(grouped[col]):
+            grouped[col] = grouped[col].round(3)
+
+    return grouped.sort_values("N preset", ascending=False)
+
+
+def _plot_dark_boxplot(ax, data_groups, labels, colors=None, ylabel=""):
+    _style_dark_chart(ax)
+
+    bp = ax.boxplot(
+        data_groups,
+        patch_artist=True,
+        widths=0.55,
+        medianprops=dict(color="#FFD700", linewidth=2),
+        whiskerprops=dict(color="#bbbbbb"),
+        capprops=dict(color="#bbbbbb"),
+        flierprops=dict(markerfacecolor="#C44E52", marker="o", markersize=4),
+    )
+
+    if colors is None:
+        colors = ["#4ECDC4"] * len(data_groups)
+
+    for patch, color in zip(bp["boxes"], colors):
+        patch.set_facecolor(color)
+        patch.set_edgecolor(color)
+
+    ax.set_xticklabels(labels, color="#cccccc", fontsize=8)
+    ax.set_ylabel(ylabel, color="#cccccc", fontsize=9)
+
+
+def _plot_time_curves(top_rows: pd.DataFrame, title: str, y_key: str, ylabel: str):
+    fig, ax = plt.subplots(figsize=(10, 4.8), facecolor="#0e1117")
+    _style_dark_chart(ax)
+
+    plotted = False
+    for _, row in top_rows.iterrows():
+        series = row.get(y_key)
+        if isinstance(series, (list, tuple, np.ndarray)) and len(series) > 0:
+            ax.plot(series, linewidth=2, label=row["preset_name"])
+            plotted = True
+
+    ax.set_title(title, color="white", fontsize=11)
+    ax.set_xlabel("Tick", color="#cccccc", fontsize=9)
+    ax.set_ylabel(ylabel, color="#cccccc", fontsize=9)
+
+    if plotted:
+        ax.legend(fontsize=8, facecolor="#1a1a2e", edgecolor="#555", labelcolor="white")
+        plt.tight_layout()
+        return fig
+
+    plt.close(fig)
+    return None
+
+
+def _build_strategy_synergy_matrix(all_results, strategies_dict, metric: str = "score") -> pd.DataFrame:
+    strategy_names = [v[0] for _, v in sorted(strategies_dict.items())]
+    matrix = pd.DataFrame(index=strategy_names, columns=strategy_names, dtype=float)
+
+    for s1 in strategy_names:
+        for s2 in strategy_names:
+            vals = []
+            for r in all_results:
+                team_strats = [strategies_dict[sid][0] for sid, _, _ in r["preset_raw"]]
+                if s1 in team_strats and s2 in team_strats and metric in r and r[metric] is not None:
+                    vals.append(r[metric])
+            matrix.loc[s1, s2] = np.mean(vals) if vals else np.nan
+
+    return matrix
 
 
 # ---------------------------------------------------------------------------
 # Opzioni strategia (definite qui per essere disponibili ovunque)
 # ---------------------------------------------------------------------------
 
-strategy_options      = [f"{sid} — {name}  ({desc})" for sid, (name, desc) in STRATEGIES.items()]
+strategy_options = [f"{sid} — {name}  ({desc})" for sid, (name, desc) in STRATEGIES.items()]
 strategy_name_options = [name for sid, (name, _) in STRATEGIES.items()]
-strategy_ids          = list(STRATEGIES.keys())
+strategy_ids = list(STRATEGIES.keys())
 
 # ---------------------------------------------------------------------------
 # Sidebar — parametri globali
@@ -608,7 +710,6 @@ with st.sidebar:
     st.header("⚙️ Configurazione globale")
     st.divider()
 
-    # Istanza
     st.subheader("📁 Istanza")
     instances_found = sorted(
         str(p) for p in Path(".").glob("**/*.json")
@@ -623,7 +724,6 @@ with st.sidebar:
         index=0,
     )
 
-    # Parametri simulazione
     st.subheader("⚙️ Seed")
     seed = st.number_input("(−1 = casuale)", min_value=-1, max_value=9999, value=42)
 
@@ -655,7 +755,6 @@ with tab_sim:
     st.markdown(
         """
         <style>
-        /* Riduce spazio verticale attorno a ogni slider */
         div[data-testid="stSlider"] {
             padding-top: 0 !important;
             padding-bottom: 0 !important;
@@ -669,14 +768,9 @@ with tab_sim:
         unsafe_allow_html=True,
     )
 
-    # -------------------------------------------------------------------
-    # Layout 3 colonne: [config agenti | simulazione | barre stato]
-    # -------------------------------------------------------------------
     col_cfg, col_sim, col_status = st.columns([2, 4, 2])
 
-    # ---- Colonna sinistra: configurazione agenti ----
     with col_cfg:
-        # Apply pending preset BEFORE any widget is instantiated
         if "_apply_preset" in st.session_state:
             _p = st.session_state.pop("_apply_preset")
             st.session_state["num_agents_val"] = _p["num_agents"]
@@ -685,7 +779,7 @@ with tab_sim:
                 st.session_state[f"strat_{_aid}"] = strategy_name_options[_a["strategy_id"]]
                 st.session_state[f"radius_{_aid}"] = _a["radius"]
                 st.session_state[f"comm_{_aid}"] = _a.get("comm_radius", 2)
-                
+
         run_clicked = st.button("▶ Avvia", type="primary", width='stretch')
         st.markdown("##### Configurazione")
 
@@ -722,13 +816,11 @@ with tab_sim:
             except Exception as _e:
                 st.error(f"Errore lettura preset: {_e}")
 
-        #st.markdown("##### 🧩 Agenti")
         agent_configs = []
 
         for agent_id in range(num_agents):
             default_sid = agent_id % len(STRATEGIES)
-            default_r   = DEFAULT_RADIUS[default_sid]
-            #current_strat = st.session_state.get(f"strat_{agent_id}", strategy_name_options[default_sid])
+            default_r = DEFAULT_RADIUS[default_sid]
 
             with st.expander(f"Agente {agent_id + 1}", expanded=False):
                 chosen_name = st.selectbox(
@@ -754,24 +846,18 @@ with tab_sim:
                 "comm_radius": comm_r,
             })
 
-    # ---- Colonna centrale: frame simulazione ----
     with col_sim:
         frame_ph = st.empty()
 
-    # ---- Colonna destra: metriche live e batterie ----
     with col_status:
         top_left, top_right = st.columns(2)
         with top_left:
             tick_ph = st.empty()
         with top_right:
             stats_ph = st.empty()
-        prog_ph    = st.empty()
+        prog_ph = st.empty()
         battery_ph = st.empty()
 
-    # -------------------------------------------------------------------
-    # Esecuzione simulazione (fuori dai context delle colonne,
-    # aggiorna i placeholder definiti sopra)
-    # -------------------------------------------------------------------
     if not run_clicked:
         preview_agents = []
         total_objects_preview = "?"
@@ -813,7 +899,7 @@ with tab_sim:
         )
 
         prog_ph.progress(0.0, text=f"Tick 0/{max_ticks}")
-        
+
         if preview_agents:
             battery_ph.markdown(
                 _render_battery_html(preview_agents, agent_configs),
@@ -843,7 +929,6 @@ with tab_sim:
             log_every=1,
         )
 
-        # Senza upload usiamo il fallback vettoriale (piu nitido a piccole dimensioni).
         agent_icon_img = _load_uploaded_pygame_icon(agent_icon_upload)
 
         package_icon_img = _load_uploaded_pygame_icon(package_icon_upload)
@@ -899,18 +984,15 @@ with tab_sim:
             st.session_state["history_runs"] = []
         st.session_state["history_runs"].append({"summary": summary, "configs": list(agent_configs)})
 
-        # --------------------------------------------------------------
-        # Risultati (larghezza piena, sotto le 3 colonne)
-        # --------------------------------------------------------------
         st.divider()
         st.subheader("📊 Risultati")
 
         r1, r2, r3, r4, r5 = st.columns(5)
-        delivered  = summary["objects_delivered"]
-        total      = summary["total_objects"]
-        rate_pct   = summary["delivery_rate"] * 100
+        delivered = summary["objects_delivered"]
+        total = summary["total_objects"]
+        rate_pct = summary["delivery_rate"] * 100
         ticks_done = summary["total_ticks"]
-        energy     = summary["average_energy_consumed"]
+        energy = summary["average_energy_consumed"]
 
         r1.metric("Oggetti consegnati", f"{delivered} / {total}")
         r2.metric("Completamento", f"{rate_pct:.1f}%")
@@ -918,11 +1000,8 @@ with tab_sim:
         r4.metric("Energia media", f"{energy:.1f}")
         r5.metric("Tempo CPU", f"{elapsed:.2f}s")
 
-        #st.progress(summary["delivery_rate"], text=f"Completamento: {rate_pct:.1f}%")
-
-        # Dettaglio per agente
         st.subheader("🤖 Dettaglio agenti")
-        steps_list     = summary.get("agent_steps", [])
+        steps_list = summary.get("agent_steps", [])
         batteries_list = summary.get("agent_final_batteries", [])
 
         agent_rows = []
@@ -946,18 +1025,17 @@ with tab_sim:
         styled = df_agents.style.map(_color_strategy, subset=["Strategia"])
         st.dataframe(styled, width='stretch', hide_index=True)
 
-        # Grafici
         if metrics.history:
             gc1, gc2 = st.columns(2)
             with gc1:
                 st.subheader("📈 Consegne nel tempo")
-                ticks_list_h   = [s.tick      for s in metrics.history]
+                ticks_list_h = [s.tick for s in metrics.history]
                 delivered_list = [s.delivered for s in metrics.history]
                 remaining_list = [s.remaining for s in metrics.history]
                 df_hist = pd.DataFrame({
                     "Tick": ticks_list_h,
                     "Consegnati": delivered_list,
-                    "Rimanenti":  remaining_list,
+                    "Rimanenti": remaining_list,
                 }).set_index("Tick")
                 st.line_chart(df_hist, color=["#55A868", "#C44E52"])
 
@@ -973,7 +1051,6 @@ with tab_sim:
                 colors_b = [_AGENT_PALETTE[i % len(_AGENT_PALETTE)] for i in range(len(agent_configs))]
                 st.line_chart(df_batt, color=colors_b)
 
-        # Download preset corrente
         preset_data = {
             "name": "preset",
             "num_agents": len(agent_configs),
@@ -986,9 +1063,6 @@ with tab_sim:
             mime="application/json",
         )
 
-    # -------------------------------------------------------------------
-    # Storico run
-    # -------------------------------------------------------------------
     if "history_runs" in st.session_state and len(st.session_state["history_runs"]) > 1:
         st.divider()
         st.subheader("🕑 Storico simulazioni")
@@ -1023,18 +1097,11 @@ with tab_sim:
 # ===================================================================
 
 with tab_bench:
-    #st.subheader("Benchmark preset casuali")
-    #st.caption("Genera configurazioni casuali per il team di agenti variando strategia, visione e comunicazione.")
-
-    # ---------------------------
-    # Layout principale
-    # ---------------------------
     left_col, right_col = st.columns([1.6, 1], gap="large")
 
     with left_col:
         st.markdown("### Configurazione")
 
-        # ---- Parametri generali ----
         with st.container(border=True):
             st.markdown("#### Parametri generali")
             g1, g2 = st.columns(2)
@@ -1060,7 +1127,6 @@ with tab_bench:
 
         st.markdown("")
 
-        # ---- Strategie ----
         with st.container(border=True):
             st.markdown("#### Strategie")
 
@@ -1091,7 +1157,6 @@ with tab_bench:
 
         st.markdown("")
 
-        # ---- Raggi ----
         with st.container(border=True):
             st.markdown("#### Raggi")
 
@@ -1153,9 +1218,6 @@ with tab_bench:
                     )
                     comm_values = [fixed_comm]
 
-    # ---------------------------
-    # Calcoli riepilogo
-    # ---------------------------
     choices_per_agent = len(bench_strategy_ids) * len(vis_values) * len(comm_values)
     max_unique_presets = choices_per_agent ** bench_num_agents if choices_per_agent > 0 else 0
 
@@ -1203,9 +1265,6 @@ with tab_bench:
             else:
                 st.caption("Nessuna strategia selezionata.")
 
-    # ---------------------------
-    # Esecuzione benchmark
-    # ---------------------------
     if bench_clicked:
         if not bench_strategy_ids:
             st.error("Seleziona almeno una strategia.")
@@ -1295,6 +1354,7 @@ with tab_bench:
 
             avg_vis = np.mean([vis_r for _, vis_r, _ in preset])
             avg_comm = np.mean([comm_r for _, _, comm_r in preset])
+            dominant_strategy = max(strat_counts, key=strat_counts.get) if strat_counts else None
 
             all_results.append({
                 "preset_name": preset_name,
@@ -1310,6 +1370,9 @@ with tab_bench:
                 "total_ticks": s["total_ticks"],
                 "average_energy": s["average_energy_consumed"],
                 "cpu_time": round(elapsed_sim, 3),
+                "dominant_strategy": dominant_strategy,
+                "detected_over_time": s.get("detected_over_time"),
+                "delivered_over_time": s.get("delivered_over_time"),
             })
 
             pct = (sim_i + 1) / actual_n
@@ -1340,65 +1403,65 @@ with tab_bench:
         all_results = _br["all_results"]
         actual_n = _br["actual_n"]
         total_bench_time = _br["total_bench_time"]
-        bench_strategy_ids = _br["bench_strategy_ids"]
-        vis_values = _br["vis_values"]
 
-        # ==============================================================
-        # RISULTATI BENCHMARK
-        # ==============================================================
+        if not all_results:
+            st.warning("Nessun risultato benchmark disponibile.")
+            st.stop()
 
-        df = pd.DataFrame(all_results)
-        total_obj = df["total_objects"].iloc[0]
+        df = pd.DataFrame(all_results).copy()
+        total_obj = int(df["total_objects"].iloc[0]) if "total_objects" in df.columns else 0
+        df["score"] = _compute_composite_score(df)
+
+        for i, row in df.iterrows():
+            all_results[i]["score"] = row["score"]
 
         st.divider()
         st.subheader("📊 Risultati benchmark")
 
-        # --- Metriche aggregate ---
-        mc1, mc2, mc3, mc4 = st.columns(4)
+        mc1, mc2, mc3, mc4, mc5 = st.columns(5)
         mc1.metric("Preset testati", actual_n)
-        mc2.metric("Completamento medio", f"{df['delivery_rate'].mean()*100:.1f}%")
+        mc2.metric("Completion medio", f"{df['delivery_rate'].mean() * 100:.1f}%")
         mc3.metric("Tick medi", f"{df['total_ticks'].mean():.1f}")
-        mc4.metric("Tempo totale CPU", f"{total_bench_time:.2f}s")
+        mc4.metric("Energia media", f"{df['average_energy'].mean():.1f}")
+        mc5.metric("Tempo totale CPU", f"{total_bench_time:.2f}s")
 
-        _csv_cols = ["preset_name", "config_str", "team_desc", "avg_vis", "avg_comm",
-                     "objects_delivered", "total_objects", "delivery_rate",
-                     "total_ticks", "average_energy", "cpu_time"]
-        _csv_bytes = df[_csv_cols].to_csv(index=False).encode("utf-8")
+        export_cols = [
+            "preset_name", "config_str", "team_desc", "dominant_strategy", "avg_vis", "avg_comm",
+            "objects_delivered", "total_objects", "delivery_rate",
+            "total_ticks", "average_energy", "score", "cpu_time"
+        ]
         st.download_button(
             "💾 Scarica tutti i risultati (CSV)",
-            data=_csv_bytes,
+            data=df[export_cols].to_csv(index=False).encode("utf-8"),
             file_name="benchmark_results.csv",
             mime="text/csv",
             key="dl_all_csv",
-            help="Salva subito i risultati su disco — resistono a qualsiasi ricaricamento della pagina",
+            help="Salva subito i risultati su disco. Sì, persino Streamlit riesce a farlo.",
         )
 
-        # ==============================================================
-        # CLASSIFICA PRESET MIGLIORI
-        # ==============================================================
-
         st.divider()
-        st.markdown("#### 🏆 Classifica preset migliori")
-        st.caption("Ordinata per: completamento (desc) → tick (asc) → energia (asc)")
+        st.markdown("#### 🏆 Classifica preset")
+        st.caption("Ordinata per score composito, poi completion, tick, energia")
 
         df_rank = df.sort_values(
-            by=["delivery_rate", "total_ticks", "average_energy"],
-            ascending=[False, True, True],
+            by=["score", "delivery_rate", "total_ticks", "average_energy"],
+            ascending=[False, False, True, True],
         ).reset_index(drop=True)
 
         df_rank_display = pd.DataFrame({
             "Pos.": range(1, len(df_rank) + 1),
             "Preset": df_rank["preset_name"],
             "Team": df_rank["team_desc"],
+            "Dominante": df_rank["dominant_strategy"],
             "Configurazione": df_rank["config_str"],
-            "Consegnati": [f"{d}/{total_obj}" for d in df_rank["objects_delivered"]],
-            "Completamento": [f"{r*100:.1f}%" for r in df_rank["delivery_rate"]],
-            "Tick": df_rank["total_ticks"],
-            "Energia media": df_rank["average_energy"].round(1),
+            "Consegnati": df_rank["objects_delivered"].astype(int).astype(str) + "/" + df_rank["total_objects"].astype(int).astype(str),
+            "Completion": (df_rank["delivery_rate"] * 100).round(1).astype(str) + "%",
+            "Tick": df_rank["total_ticks"].round(0),
+            "Energia": df_rank["average_energy"].round(2),
+            "Score": df_rank["score"].round(4),
         })
         st.dataframe(df_rank_display, width='stretch', hide_index=True)
 
-        # Top 3 dettaglio
         if len(df_rank) >= 1:
             st.markdown("**Top 3:**")
             medals = ["🥇", "🥈", "🥉"]
@@ -1407,12 +1470,12 @@ with tab_bench:
                 col_info, col_btn = st.columns([5, 1])
                 with col_info:
                     st.markdown(
-                        f"{medals[i]} **{row['preset_name']}** — {row['team_desc']} — "
-                        f"consegnati {row['objects_delivered']}/{total_obj} "
-                        f"in **{row['total_ticks']} tick** — "
-                        f"energia {row['average_energy']:.1f}"
+                        f"{medals[i]} **{row['preset_name']}** · {row['team_desc']} · "
+                        f"completion **{row['delivery_rate'] * 100:.1f}%** · "
+                        f"**{row['total_ticks']} tick** · energia **{row['average_energy']:.1f}** · "
+                        f"score **{row['score']:.4f}**"
                     )
-                    st.caption(f"    Dettaglio: {row['config_str']}")
+                    st.caption(f"Dettaglio: {row['config_str']}")
                 with col_btn:
                     dl_data = {
                         "name": row["preset_name"],
@@ -1427,29 +1490,23 @@ with tab_bench:
                         key=f"dl_top_{i}",
                     )
 
-        # ==============================================================
-        # TABELLA COMPLETA
-        # ==============================================================
-
         st.divider()
         st.markdown("#### 📋 Tutti i preset")
 
         df_all_display = pd.DataFrame({
             "Preset": df["preset_name"],
             "Team": df["team_desc"],
+            "Dominante": df["dominant_strategy"],
             "Configurazione": df["config_str"],
+            "Completion": (df["delivery_rate"] * 100).round(1).astype(str) + "%",
             "Consegnati": df["objects_delivered"],
             "Tick": df["total_ticks"],
             "Energia media": df["average_energy"].round(1),
+            "Score": df["score"].round(4),
             "CPU (s)": df["cpu_time"],
         })
         st.dataframe(df_all_display, width='stretch', hide_index=True)
 
-        # ==============================================================
-        # RAGGRUPPAMENTI
-        # ==============================================================
-
-        # Esplodi le configurazioni per-agente per analisi per strategia
         agent_level_rows = []
         for r in all_results:
             for strat_id, vis_r, comm_r in r["preset_raw"]:
@@ -1458,236 +1515,237 @@ with tab_bench:
                     "strategy": STRATEGIES[strat_id][0],
                     "vis_radius": vis_r,
                     "comm_radius": comm_r,
+                    "delivery_rate": r["delivery_rate"],
                     "total_ticks": r["total_ticks"],
                     "average_energy": r["average_energy"],
                     "objects_delivered": r["objects_delivered"],
+                    "score": r["score"],
                 })
         df_agents_flat = pd.DataFrame(agent_level_rows)
 
-        metric_cols = ["total_ticks", "average_energy", "objects_delivered"]
+        metric_cols = ["delivery_rate", "total_ticks", "average_energy", "objects_delivered", "score"]
 
-        # --- Per strategia (contando quante volte compare e performance media dei team che la usano) ---
         st.divider()
         st.markdown("#### 📊 Raggruppamento per strategia")
         st.caption("Performance media dei preset che contengono ciascuna strategia")
         df_by_strat = _grouped_stats(df_agents_flat, "strategy", metric_cols)
-        st.dataframe(df_by_strat, width='stretch')
+        st.dataframe(df_by_strat, width='stretch', hide_index=True)
 
-        # --- Per raggio visione ---
         st.markdown("#### 📊 Raggruppamento per raggio visione")
         st.caption("Performance media dei preset che contengono agenti con ciascun raggio")
         df_by_vis = _grouped_stats(df_agents_flat, "vis_radius", metric_cols)
-        st.dataframe(df_by_vis, width='stretch')
+        st.dataframe(df_by_vis, width='stretch', hide_index=True)
 
-        # --- Per raggio Comunicazione ---
-        st.markdown("#### 📊 Raggruppamento per raggio Comunicazione")
+        st.markdown("#### 📊 Raggruppamento per raggio comunicazione")
         df_by_comm = _grouped_stats(df_agents_flat, "comm_radius", metric_cols)
-        st.dataframe(df_by_comm, width='stretch')
-
-        # ==============================================================
-        # GRAFICI
-        # ==============================================================
+        st.dataframe(df_by_comm, width='stretch', hide_index=True)
 
         st.divider()
         st.subheader("📈 Grafici di analisi")
 
-        # --- 1. Tick per preset (bar chart) ---
-        st.markdown("#### Tick per preset")
-        _fig_w = min(max(10, actual_n * 0.35), 38)
-        fig1, ax1 = plt.subplots(figsize=(_fig_w, 4), facecolor="#0e1117")
-        _style_dark_chart(ax1)
+        dominant_colors = [STRATEGY_COLORS.get(s, "#888888") for s in df["dominant_strategy"]]
 
-        x_labels_bar = [f"P{i+1}" for i in range(actual_n)]
-        # Colore basato sulla strategia dominante nel team
-        dominant_colors = []
-        for r in all_results:
-            strat_counts = {}
-            for sid, _, _ in r["preset_raw"]:
-                sn = STRATEGIES[sid][0]
-                strat_counts[sn] = strat_counts.get(sn, 0) + 1
-            dominant = max(strat_counts, key=strat_counts.get)
-            dominant_colors.append(STRATEGY_COLORS.get(dominant, "#888"))
-
-        ax1.bar(range(actual_n), df["total_ticks"], color=dominant_colors,
-                edgecolor="#444", linewidth=0.5)
-        ax1.axhline(y=df["total_ticks"].mean(), color="#FFD700", linestyle="--",
-                    linewidth=1.5, label=f"Media: {df['total_ticks'].mean():.1f}")
-        if actual_n <= 60:
-            ax1.set_xticks(range(actual_n))
-            ax1.set_xticklabels(x_labels_bar, fontsize=6, color="#aaa")
-        else:
-            ax1.set_xticks([])
-        ax1.set_ylabel("Tick", color="#ccc", fontsize=9)
-        ax1.legend(fontsize=8, facecolor="#1a1a2e", edgecolor="#555", labelcolor="white")
-        plt.tight_layout()
-        st.pyplot(fig1)
-        plt.close(fig1)
-
-        # --- 2. Consegne per preset (bar chart) ---
-        st.markdown("#### Oggetti consegnati per preset")
-        fig2, ax2 = plt.subplots(figsize=(_fig_w, 4), facecolor="#0e1117")
-        _style_dark_chart(ax2)
-
-        delivered_vals = df["objects_delivered"].values
-        colors_bar2 = [
-            "#55A868" if d == total_obj else "#DD8452" if d > total_obj * 0.5 else "#C44E52"
-            for d in delivered_vals
-        ]
-        ax2.bar(range(actual_n), delivered_vals, color=colors_bar2,
-                edgecolor="#444", linewidth=0.5)
-        ax2.axhline(y=total_obj, color="#FFD700", linestyle=":", linewidth=1,
-                    label=f"Totale: {total_obj}")
-        if actual_n <= 60:
-            ax2.set_xticks(range(actual_n))
-            ax2.set_xticklabels(x_labels_bar, fontsize=6, color="#aaa")
-        else:
-            ax2.set_xticks([])
-        ax2.set_ylabel("Consegnati", color="#ccc", fontsize=9)
-        ax2.legend(fontsize=8, facecolor="#1a1a2e", edgecolor="#555", labelcolor="white")
-        plt.tight_layout()
-        st.pyplot(fig2)
-        plt.close(fig2)
-
-        # --- 3. Box plot per strategia ---
-        strat_names_present = df_agents_flat["strategy"].unique().tolist()
-        if len(strat_names_present) > 1:
-            st.markdown("#### Box plot tick per strategia (team che la contengono)")
-            fig3, ax3 = plt.subplots(figsize=(10, 4), facecolor="#0e1117")
-            _style_dark_chart(ax3)
-            # Deduplica: per ogni strategia, prendi i tick dei preset unici che la contengono
-            data_per_strat = []
-            for sname in strat_names_present:
-                preset_ticks = df_agents_flat[
-                    df_agents_flat["strategy"] == sname
-                ]["total_ticks"].drop_duplicates().values
-                data_per_strat.append(preset_ticks if len(preset_ticks) > 0 else [0])
-            bp = ax3.boxplot(
-                data_per_strat, patch_artist=True, widths=0.5,
-                medianprops=dict(color="#FFD700", linewidth=2),
-                whiskerprops=dict(color="#aaa"),
-                capprops=dict(color="#aaa"),
-                flierprops=dict(markerfacecolor="#C44E52", marker="o", markersize=5),
-            )
-            for patch, sname in zip(bp["boxes"], strat_names_present):
-                patch.set_facecolor(STRATEGY_COLORS.get(sname, "#888"))
-                patch.set_edgecolor(STRATEGY_COLORS.get(sname, "#888"))
-            ax3.set_xticklabels(strat_names_present, color="#ccc", fontsize=8)
-            ax3.set_ylabel("Tick", color="#ccc", fontsize=9)
-            plt.tight_layout()
-            st.pyplot(fig3)
-            plt.close(fig3)
-
-        # --- 4. Box plot per raggio visione ---
-        vis_unique = sorted(df_agents_flat["vis_radius"].unique())
-        if len(vis_unique) > 1:
-            st.markdown("#### Box plot tick per raggio visione")
-            fig4, ax4 = plt.subplots(figsize=(10, 4), facecolor="#0e1117")
-            _style_dark_chart(ax4)
-            data_per_vis = [
-                df_agents_flat[df_agents_flat["vis_radius"] == v]["total_ticks"].drop_duplicates().values
-                for v in vis_unique
-            ]
-            bp4 = ax4.boxplot(
-                data_per_vis, patch_artist=True, widths=0.5,
-                boxprops=dict(facecolor="#4ECDC4", color="#4ECDC4"),
-                medianprops=dict(color="#FFD700", linewidth=2),
-                whiskerprops=dict(color="#aaa"),
-                capprops=dict(color="#aaa"),
-                flierprops=dict(markerfacecolor="#C44E52", marker="o", markersize=5),
-            )
-            ax4.set_xticklabels([str(v) for v in vis_unique], color="#ccc", fontsize=8)
-            ax4.set_xlabel("Raggio visione", color="#ccc", fontsize=9)
-            ax4.set_ylabel("Tick", color="#ccc", fontsize=9)
-            plt.tight_layout()
-            st.pyplot(fig4)
-            plt.close(fig4)
-
-        # --- 5. Box plot per raggio Comunicazione ---
-        comm_unique = sorted(df_agents_flat["comm_radius"].unique())
-        if len(comm_unique) > 1:
-            st.markdown("#### Box plot tick per raggio Comunicazione")
-            fig5, ax5 = plt.subplots(figsize=(8, 4), facecolor="#0e1117")
-            _style_dark_chart(ax5)
-            data_per_comm = [
-                df_agents_flat[df_agents_flat["comm_radius"] == c]["total_ticks"].drop_duplicates().values
-                for c in comm_unique
-            ]
-            bp5 = ax5.boxplot(
-                data_per_comm, patch_artist=True, widths=0.4,
-                boxprops=dict(facecolor="#FF6B35", color="#FF6B35"),
-                medianprops=dict(color="#FFD700", linewidth=2),
-                whiskerprops=dict(color="#aaa"),
-                capprops=dict(color="#aaa"),
-                flierprops=dict(markerfacecolor="#C44E52", marker="o", markersize=5),
-            )
-            ax5.set_xticklabels([str(c) for c in comm_unique], color="#ccc", fontsize=8)
-            ax5.set_xlabel("Raggio Comunicazione", color="#ccc", fontsize=9)
-            ax5.set_ylabel("Tick", color="#ccc", fontsize=9)
-            plt.tight_layout()
-            st.pyplot(fig5)
-            plt.close(fig5)
-
-        # --- 6. Scatter: tick vs consegne ---
-        st.markdown("#### Scatter tick vs consegne (colore = strategia dominante)")
-        fig6, ax6 = plt.subplots(figsize=(10, 5), facecolor="#0e1117")
-        _style_dark_chart(ax6)
-        ax6.scatter(
-            df["total_ticks"], df["objects_delivered"],
-            c=dominant_colors, s=60, edgecolors="#555", linewidths=0.5, zorder=5,
+        st.markdown("#### Pareto scatter: tick vs energia")
+        st.caption("Colore = strategia dominante, dimensione = completion rate")
+        fig_pareto, ax_pareto = plt.subplots(figsize=(10, 5.5), facecolor="#0e1117")
+        _style_dark_chart(ax_pareto)
+        sizes = 60 + (df["delivery_rate"].fillna(0) * 180)
+        ax_pareto.scatter(
+            df["total_ticks"],
+            df["average_energy"],
+            s=sizes,
+            c=dominant_colors,
+            edgecolors="#444444",
+            linewidths=0.6,
+            alpha=0.9,
         )
-        ax6.axhline(y=total_obj, color="#FFD700", linestyle=":", linewidth=1, alpha=0.6)
-        ax6.set_xlabel("Tick", color="#ccc", fontsize=9)
-        ax6.set_ylabel("Consegnati", color="#ccc", fontsize=9)
-        # Legenda manuale per strategie presenti
+        ax_pareto.set_xlabel("Tick totali", color="#cccccc", fontsize=9)
+        ax_pareto.set_ylabel("Energia media", color="#cccccc", fontsize=9)
         legend_handles = [
-            mpatches.Patch(color=STRATEGY_COLORS.get(sn, "#888"), label=sn)
-            for sn in strat_names_present
+            mpatches.Patch(color=STRATEGY_COLORS.get(sn, "#888888"), label=sn)
+            for sn in sorted(df["dominant_strategy"].dropna().unique())
         ]
-        ax6.legend(handles=legend_handles, fontsize=8,
-                   facecolor="#1a1a2e", edgecolor="#555", labelcolor="white")
+        if legend_handles:
+            ax_pareto.legend(
+                handles=legend_handles,
+                fontsize=8,
+                facecolor="#1a1a2e",
+                edgecolor="#555",
+                labelcolor="white"
+            )
         plt.tight_layout()
-        st.pyplot(fig6)
-        plt.close(fig6)
+        st.pyplot(fig_pareto)
+        plt.close(fig_pareto)
 
-        # --- 7. Heatmap: strategia dominante × vis media (tick medi) ---
-        # Costruisci colonna "dominant strategy" e "vis bucket" a livello preset
-        df["dominant_strategy"] = [
-            max(
-                {STRATEGIES[sid][0]: 0 for sid in bench_strategy_ids} |
-                {STRATEGIES[sid][0]: sum(1 for s, _, _ in r["preset_raw"] if s == sid)
-                 for sid in bench_strategy_ids},
-                key=lambda sn: sum(1 for s, _, _ in r["preset_raw"] if STRATEGIES[s][0] == sn)
-            )
-            for r in all_results
-        ]
-        pivot = df.pivot_table(
-            values="total_ticks", index="dominant_strategy",
-            columns=pd.cut(df["avg_vis"], bins=max(1, len(vis_values)),
-                          include_lowest=True) if len(vis_values) > 1 else "avg_vis",
-            aggfunc="mean"
+        st.markdown("#### Completion vs tick")
+        st.caption("I preset forti stanno in alto a sinistra. Incredibile, la geometria funziona ancora.")
+        fig_ct, ax_ct = plt.subplots(figsize=(10, 5), facecolor="#0e1117")
+        _style_dark_chart(ax_ct)
+        ax_ct.scatter(
+            df["total_ticks"],
+            df["delivery_rate"] * 100,
+            s=80,
+            c=dominant_colors,
+            edgecolors="#444444",
+            linewidths=0.6,
         )
-        if not pivot.empty and pivot.shape[0] > 0 and pivot.shape[1] > 1:
-            st.markdown("#### Heatmap: strategia dominante x raggio visione medio (tick)")
-            fig7, ax7 = plt.subplots(
-                figsize=(8, max(3, len(pivot.index) * 0.8)), facecolor="#0e1117"
+        ax_ct.set_xlabel("Tick totali", color="#cccccc", fontsize=9)
+        ax_ct.set_ylabel("Completion rate (%)", color="#cccccc", fontsize=9)
+        ax_ct.axhline(df["delivery_rate"].mean() * 100, linestyle="--", linewidth=1.2, color="#FFD700")
+        ax_ct.axvline(df["total_ticks"].mean(), linestyle="--", linewidth=1.2, color="#FFD700")
+        plt.tight_layout()
+        st.pyplot(fig_ct)
+        plt.close(fig_ct)
+
+        top_k = min(5, len(df_rank))
+        top_rows = df_rank.head(top_k)
+        if top_rows["detected_over_time"].apply(lambda x: isinstance(x, (list, tuple, np.ndarray))).any():
+            st.markdown("#### Curve cumulative: oggetti rilevati nel tempo")
+            fig_detected = _plot_time_curves(
+                top_rows,
+                "Oggetti rilevati nel tempo - Top preset",
+                "detected_over_time",
+                "Oggetti rilevati",
             )
-            _style_dark_chart(ax7)
-            im = ax7.imshow(pivot.values, cmap="RdYlGn_r", aspect="auto")
-            ax7.set_xticks(range(len(pivot.columns)))
-            ax7.set_xticklabels([str(c) for c in pivot.columns], color="#ccc", fontsize=7)
-            ax7.set_yticks(range(len(pivot.index)))
-            ax7.set_yticklabels(pivot.index.tolist(), color="#ccc")
-            ax7.set_xlabel("Raggio visione medio", color="#ccc", fontsize=9)
-            for i in range(len(pivot.index)):
-                for j in range(len(pivot.columns)):
-                    val = pivot.values[i, j]
-                    if not np.isnan(val):
-                        ax7.text(j, i, f"{val:.0f}", ha="center", va="center",
-                                color="white", fontsize=9, fontweight="bold")
-            cbar = fig7.colorbar(im, ax=ax7)
-            cbar.ax.yaxis.set_tick_params(color="#aaa")
+            if fig_detected is not None:
+                st.pyplot(fig_detected)
+                plt.close(fig_detected)
+
+        if top_rows["delivered_over_time"].apply(lambda x: isinstance(x, (list, tuple, np.ndarray))).any():
+            st.markdown("#### Curve cumulative: oggetti consegnati nel tempo")
+            fig_delivered = _plot_time_curves(
+                top_rows,
+                "Oggetti consegnati nel tempo - Top preset",
+                "delivered_over_time",
+                "Oggetti consegnati",
+            )
+            if fig_delivered is not None:
+                st.pyplot(fig_delivered)
+                plt.close(fig_delivered)
+
+        strat_names_present = sorted(df_agents_flat["strategy"].dropna().unique().tolist())
+        if len(strat_names_present) > 1:
+            st.markdown("#### Distribuzione score per strategia")
+            fig_bs, ax_bs = plt.subplots(figsize=(10, 4.8), facecolor="#0e1117")
+            data_groups = []
+            colors = []
+            labels = []
+            for sname in strat_names_present:
+                vals = (
+                    df_agents_flat[df_agents_flat["strategy"] == sname][["preset_name", "score"]]
+                    .drop_duplicates()["score"]
+                    .dropna()
+                    .values
+                )
+                if len(vals) > 0:
+                    data_groups.append(vals)
+                    labels.append(sname)
+                    colors.append(STRATEGY_COLORS.get(sname, "#888888"))
+            if len(data_groups) > 1:
+                _plot_dark_boxplot(ax_bs, data_groups, labels, colors=colors, ylabel="Score")
+                plt.tight_layout()
+                st.pyplot(fig_bs)
+            plt.close(fig_bs)
+
+        vis_unique = sorted(df_agents_flat["vis_radius"].dropna().unique())
+        if len(vis_unique) > 1:
+            st.markdown("#### Distribuzione score per raggio visione")
+            fig_bv, ax_bv = plt.subplots(figsize=(9, 4.4), facecolor="#0e1117")
+            data_groups = []
+            labels = []
+            for v in vis_unique:
+                vals = (
+                    df_agents_flat[df_agents_flat["vis_radius"] == v][["preset_name", "score"]]
+                    .drop_duplicates()["score"]
+                    .dropna()
+                    .values
+                )
+                if len(vals) > 0:
+                    data_groups.append(vals)
+                    labels.append(str(v))
+            if len(data_groups) > 1:
+                _plot_dark_boxplot(ax_bv, data_groups, labels, ylabel="Score")
+                ax_bv.set_xlabel("Raggio visione", color="#cccccc", fontsize=9)
+                plt.tight_layout()
+                st.pyplot(fig_bv)
+            plt.close(fig_bv)
+
+        comm_unique = sorted(df_agents_flat["comm_radius"].dropna().unique())
+        if len(comm_unique) > 1:
+            st.markdown("#### Distribuzione score per raggio comunicazione")
+            fig_bc, ax_bc = plt.subplots(figsize=(8, 4.4), facecolor="#0e1117")
+            data_groups = []
+            labels = []
+            for c in comm_unique:
+                vals = (
+                    df_agents_flat[df_agents_flat["comm_radius"] == c][["preset_name", "score"]]
+                    .drop_duplicates()["score"]
+                    .dropna()
+                    .values
+                )
+                if len(vals) > 0:
+                    data_groups.append(vals)
+                    labels.append(str(c))
+            if len(data_groups) > 1:
+                _plot_dark_boxplot(ax_bc, data_groups, labels, ylabel="Score")
+                ax_bc.set_xlabel("Raggio comunicazione", color="#cccccc", fontsize=9)
+                plt.tight_layout()
+                st.pyplot(fig_bc)
+            plt.close(fig_bc)
+
+        st.markdown("#### Heatmap sinergia strategie")
+        st.caption("Score medio dei preset che contengono entrambe le strategie")
+        synergy = _build_strategy_synergy_matrix(all_results, STRATEGIES, metric="score")
+        if not synergy.empty and synergy.notna().sum().sum() > 0:
+            fig_sy, ax_sy = plt.subplots(
+                figsize=(8.5, max(4, len(synergy.index) * 0.7)),
+                facecolor="#0e1117"
+            )
+            _style_dark_chart(ax_sy)
+            im = ax_sy.imshow(synergy.values, cmap="viridis", aspect="auto")
+            ax_sy.set_xticks(range(len(synergy.columns)))
+            ax_sy.set_xticklabels(synergy.columns, rotation=45, ha="right", color="#cccccc", fontsize=8)
+            ax_sy.set_yticks(range(len(synergy.index)))
+            ax_sy.set_yticklabels(synergy.index, color="#cccccc", fontsize=8)
+            for i in range(len(synergy.index)):
+                for j in range(len(synergy.columns)):
+                    val = synergy.iloc[i, j]
+                    if pd.notna(val):
+                        ax_sy.text(j, i, f"{val:.2f}", ha="center", va="center", color="white", fontsize=8)
+            cbar = fig_sy.colorbar(im, ax=ax_sy)
+            cbar.ax.yaxis.set_tick_params(color="#aaaaaa")
             for label in cbar.ax.yaxis.get_ticklabels():
-                label.set_color("#aaa")
+                label.set_color("#aaaaaa")
             plt.tight_layout()
-            st.pyplot(fig7)
-            plt.close(fig7)
+            st.pyplot(fig_sy)
+            plt.close(fig_sy)
+
+        st.markdown("#### Effetto marginale dei fattori sullo score")
+        col_me1, col_me2, col_me3 = st.columns(3)
+        with col_me1:
+            strat_effect = (
+                df_agents_flat.groupby("strategy")["score"]
+                .mean()
+                .sort_values(ascending=False)
+                .round(3)
+                .reset_index()
+            )
+            st.dataframe(strat_effect, width='stretch', hide_index=True)
+        with col_me2:
+            vis_effect = (
+                df_agents_flat.groupby("vis_radius")["score"]
+                .mean()
+                .sort_index()
+                .round(3)
+                .reset_index()
+            )
+            st.dataframe(vis_effect, width='stretch', hide_index=True)
+        with col_me3:
+            comm_effect = (
+                df_agents_flat.groupby("comm_radius")["score"]
+                .mean()
+                .sort_index()
+                .round(3)
+                .reset_index()
+            )
+            st.dataframe(comm_effect, width='stretch', hide_index=True)
