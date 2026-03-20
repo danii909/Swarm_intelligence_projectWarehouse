@@ -1530,6 +1530,17 @@ with tab_bench:
         }.items():
             if col not in df.columns:
                 df[col] = default_val
+        for col, default_val in {
+            "preset_name": "Unknown",
+            "dominant_strategy": "Unknown",
+            "completion_rate": 0.0,
+            "completed": 0,
+            "completion_time": np.nan,
+            "total_ticks": 0.0,
+            "energy_per_object": 0.0,
+        }.items():
+            if col not in df_runs.columns:
+                df_runs[col] = default_val
         total_obj = df["total_objects"].iloc[0]
 
         # Score composito opzionale (vista soft)
@@ -1570,7 +1581,8 @@ with tab_bench:
                      "total_ticks", "average_energy", "throughput", "energy_per_object",
                      "coverage_final", "redundancy_index", "conflict_rate",
                      "blocked_move_rate", "mean_pairs_communicating", "soft_score", "cpu_time"]
-        _csv_bytes = df[_csv_cols].to_csv(index=False).encode("utf-8")
+        _csv_cols_existing = [c for c in _csv_cols if c in df.columns]
+        _csv_bytes = df[_csv_cols_existing].to_csv(index=False).encode("utf-8")
         st.download_button(
             "💾 Scarica tutti i risultati (CSV)",
             data=_csv_bytes,
