@@ -12,6 +12,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import List, Dict, Any, TYPE_CHECKING, Optional, Set, Tuple
 
+import math
+from statistics import median
 
 from src.environment.grid import CellType
 
@@ -272,12 +274,35 @@ class Metrics:
             return 0.0
         return float(sum(self.delivery_trip_times) / len(self.delivery_trip_times))
 
+    @staticmethod
+    def _cv(values: List[int]) -> float:
+        valid = [float(v) for v in values if v is not None]
+        if not valid:
+            return 0.0
+        m = sum(valid) / len(valid)
+        if math.isclose(m, 0.0):
+            return 0.0
+        var = sum((v - m) ** 2 for v in valid) / len(valid)
+        return math.sqrt(var) / m
+
+    def state_occupancy(self) -> Dict[str, float]:
+        """Ritorna la quota di tempo per stato agente, in [0,1]."""
+        if self.total_ticks <= 0 or not self.state_time_counts:
+            return {}
+        denom = sum(self.state_time_counts.values())
+        if denom <= 0:
+            return {}
+        return {
+            state: count / denom
+            for state, count in sorted(self.state_time_counts.items())
+        }
 
     # ------------------------------------------------------------------
     # Report
     # ------------------------------------------------------------------
 
     def summary(self) -> Dict[str, Any]:
+        occupancy = self.state_occupancy()
         completion_time = self.completion_tick if self.completion_tick is not None else self.total_ticks
         return {
             "objects_delivered": self.objects_delivered,
@@ -286,14 +311,34 @@ class Metrics:
             "completion_rate": round(self.completion_rate, 3),
             "completed": bool(self.total_objects > 0 and self.objects_delivered >= self.total_objects),
             "completion_time": completion_time,
+            "completion_time_censored": self.completion_tick is None,
             "total_ticks": self.total_ticks,
             "average_energy_consumed": round(self.average_energy_consumed, 2),
             "total_energy_consumed": round(self.total_energy_consumed, 2),
+            "throughput": round(self.throughput, 4),
+            "energy_per_object": round(self.energy_per_object, 4),
             "first_pickup_tick": self.first_pickup_tick,
             "first_delivery_tick": self.first_delivery_tick,
+            "coverage_final": round(self.coverage_final, 4),
+            "redundancy_index": round(self.redundancy_index, 4),
+            "conflict_rate": round(self.conflict_rate, 4),
+            "blocked_move_rate": round(self.blocked_move_rate, 4),
+            "mean_pairs_communicating": round(self.mean_pairs_communicating, 4),
+            "network_density": round(self.network_density, 4),
+            "idle_ratio": round(self.idle_ratio, 4),
+            "delivery_trip_time_avg": round(self.average_delivery_trip_time, 3),
+            "cv_steps": round(self._cv(self.agent_steps), 4),
+            "cv_delivered": round(self._cv(self.agent_delivered), 4),
             "agent_steps": self.agent_steps,
             "agent_delivered": self.agent_delivered,
             "agent_final_batteries": self.agent_final_batteries,
+            "state_occupancy": {k: round(v, 4) for k, v in occupancy.items()},
+            "empty_cells_total": self.empty_cells_total,
+            "empty_cells_unique_seen": len(self.empty_cells_seen_unique),
+            "total_empty_visits": self.total_empty_visits,
+            "median_delivery_trip_time": round(median(self.delivery_trip_times), 3)
+            if self.delivery_trip_times else 0.0,
+            "empty_visit_counts": self.empty_visit_counts,
         }
 
     def print_summary(self) -> None:  # pragma: no cover

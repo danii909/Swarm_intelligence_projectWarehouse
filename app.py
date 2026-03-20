@@ -1,4 +1,4 @@
-﻿"""
+"""
 Interfaccia Streamlit per configurare ed eseguire la simulazione Swarm Intelligence.
 
     streamlit run app.py
@@ -16,10 +16,6 @@ import time
 import random as _random
 from pathlib import Path
 
-import matplotlib
-matplotlib.use("Agg")   # backend non-interattivo per Streamlit
-import matplotlib.pyplot as plt
-import matplotlib.patches as mpatches
 import numpy as np
 import pandas as pd
 import streamlit as st
@@ -135,25 +131,6 @@ def _agent_label_hex(color_hex: str) -> str:
     rgb = tuple(int(color_hex[i:i + 2], 16) for i in (0, 2, 4))
     label_rgb = _agent_label_rgb(rgb)
     return "#FFFFFF" if label_rgb == (255, 255, 255) else "#000000"
-
-def _load_icon_image(path_str: str):
-    """Carica un'immagine icona da path locale. Ritorna None se non valida."""
-    path_str = (path_str or "").strip()
-    if not path_str:
-        return None
-
-    path = Path(path_str)
-    if not path.is_absolute():
-        path = Path.cwd() / path
-
-    if not path.is_file():
-        return None
-
-    try:
-        return plt.imread(str(path))
-    except Exception:
-        return None
-
 
 def _load_pygame_icon(path_str: str):
     """Carica un'icona pygame con alpha, senza aprire una finestra."""
@@ -570,82 +547,6 @@ def _render_status_card_html(title: str, value: str, accent: str) -> str:
     )
 
 
-def _style_dark_chart(ax):
-    """Applica stile dark coerente a un asse matplotlib."""
-    ax.set_facecolor("#0e1117")
-    for spine in ax.spines.values():
-        spine.set_color("#444")
-    ax.tick_params(colors="#aaa", labelsize=7)
-
-
-def _grouped_stats(df: pd.DataFrame, group_col: str, metric_cols: list) -> pd.DataFrame:
-    """Calcola mean/min/max/std raggruppando per group_col."""
-    agg_dict = {}
-    for col in metric_cols:
-        agg_dict[col] = ["mean", "min", "max", "std"]
-    grouped = df.groupby(group_col).agg(agg_dict)
-    grouped.columns = [f"{col} {stat}" for col, stat in grouped.columns]
-    # Round
-    for c in grouped.columns:
-        grouped[c] = grouped[c].apply(lambda x: round(x, 2))
-    grouped.insert(0, "N simulazioni", df.groupby(group_col).size())
-    return grouped
-
-
-def _iqr(series: pd.Series) -> float:
-    """Inter-Quartile Range robusto ai NaN."""
-    s = pd.to_numeric(series, errors="coerce").dropna()
-    if s.empty:
-        return float("nan")
-    return float(s.quantile(0.75) - s.quantile(0.25))
-
-
-def _robust_stats(series: pd.Series) -> dict:
-    """Statistiche robuste per confronti multi-seed."""
-    s = pd.to_numeric(series, errors="coerce").dropna()
-    if s.empty:
-        return {
-            "mean": float("nan"),
-            "std": float("nan"),
-            "median": float("nan"),
-            "iqr": float("nan"),
-            "worst": float("nan"),
-        }
-    return {
-        "mean": float(s.mean()),
-        "std": float(s.std(ddof=0)),
-        "median": float(s.median()),
-        "iqr": _iqr(s),
-        "worst": float(s.max()),
-    }
-
-
-def _ecdf(values: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-    """Restituisce coordinate ECDF ordinate (x, y)."""
-    arr = np.asarray(values, dtype=float)
-    arr = arr[np.isfinite(arr)]
-    if arr.size == 0:
-        return np.array([]), np.array([])
-    x = np.sort(arr)
-    y = np.arange(1, x.size + 1) / x.size
-    return x, y
-
-
-def _build_delivery_curve(history, max_ticks: int) -> np.ndarray:
-    """Costruisce una curva delivered/tick di lunghezza max_ticks."""
-    curve = np.zeros(max_ticks, dtype=float)
-    if not history:
-        return curve
-    idx = 0
-    current = 0
-    for tick in range(1, max_ticks + 1):
-        while idx < len(history) and history[idx].tick <= tick:
-            current = history[idx].delivered
-            idx += 1
-        curve[tick - 1] = current
-    return curve
-
-
 # ---------------------------------------------------------------------------
 # Opzioni strategia (definite qui per essere disponibili ovunque)
 # ---------------------------------------------------------------------------
@@ -1000,33 +901,6 @@ with tab_sim:
         styled = df_agents.style.map(_color_strategy, subset=["Strategia"])
         st.dataframe(styled, width='stretch', hide_index=True)
 
-        # Grafici
-        if metrics.history:
-            gc1, gc2 = st.columns(2)
-            with gc1:
-                st.subheader("📈 Consegne nel tempo")
-                ticks_list_h   = [s.tick      for s in metrics.history]
-                delivered_list = [s.delivered for s in metrics.history]
-                remaining_list = [s.remaining for s in metrics.history]
-                df_hist = pd.DataFrame({
-                    "Tick": ticks_list_h,
-                    "Consegnati": delivered_list,
-                    "Rimanenti":  remaining_list,
-                }).set_index("Tick")
-                st.line_chart(df_hist, color=["#55A868", "#C44E52"])
-
-            with gc2:
-                st.subheader("🔋 Batteria nel tempo")
-                batt_data = {"Tick": [s.tick for s in metrics.history]}
-                for i, cfg in enumerate(agent_configs):
-                    batt_data[f"A{cfg['agent_id'] + 1}"] = [
-                        s.agent_batteries[i] if i < len(s.agent_batteries) else 0
-                        for s in metrics.history
-                    ]
-                df_batt = pd.DataFrame(batt_data).set_index("Tick")
-                colors_b = [_AGENT_PALETTE[i % len(_AGENT_PALETTE)] for i in range(len(agent_configs))]
-                st.line_chart(df_batt, color=colors_b)
-
         # Download preset corrente
         preset_data = {
             "name": "preset",
@@ -1126,18 +1000,24 @@ with tab_bench:
             )
 
             if strat_mode == "Casuale":
+                benchmark_strategy_entries = [
+                    (sid, name) for sid, (name, _) in STRATEGIES.items() if name != "Ant-Colony"
+                ]
                 bench_strategies = st.multiselect(
                     "Strategie possibili",
-                    options=[f"{sid} — {name}" for sid, (name, _) in STRATEGIES.items()],
-                    default=[f"{sid} — {name}" for sid, (name, _) in STRATEGIES.items()],
+                    options=[f"{sid+1} — {name}" for sid, name in benchmark_strategy_entries],
+                    default=[f"{sid+1} — {name}" for sid, name in benchmark_strategy_entries],
                     key="bench_strats",
                     placeholder="Seleziona almeno una strategia"
                 )
                 bench_strategy_ids = [int(s.split(" — ")[0]) for s in bench_strategies]
             else:
+                benchmark_strategy_entries = [
+                    (sid, name) for sid, (name, _) in STRATEGIES.items() if name != "Ant-Colony"
+                ]
                 fixed_strat_label = st.selectbox(
                     "Strategia fissa",
-                    options=[f"{sid} — {name}" for sid, (name, _) in STRATEGIES.items()],
+                    options=[f"{sid} — {name}" for sid, name in benchmark_strategy_entries],
                     index=1,
                     key="bench_fixed_strat",
                 )
@@ -1239,25 +1119,7 @@ with tab_bench:
                 help="Numero di configurazioni casuali da eseguire senza duplicati, fin dove possibile."
             )
 
-            bench_runs_per_preset = st.slider(
-                "Run per preset (seed diversi)",
-                min_value=1,
-                max_value=12,
-                value=5,
-                key="bench_runs_per_preset",
-                help="Ogni preset viene testato su piu seed per stimare robustezza.",
-            )
-
-            st.markdown("**Score composito (vista soft)**")
-            sw1, sw2, sw3, sw4 = st.columns(4)
-            with sw1:
-                w_completion = st.number_input("w completion", 0.0, 1.0, 0.50, 0.05, key="w_completion")
-            with sw2:
-                w_throughput = st.number_input("w throughput", 0.0, 1.0, 0.20, 0.05, key="w_throughput")
-            with sw3:
-                w_energy = st.number_input("w energy", 0.0, 1.0, 0.20, 0.05, key="w_energy")
-            with sw4:
-                w_conflict = st.number_input("w conflict", 0.0, 1.0, 0.10, 0.05, key="w_conflict")
+            bench_runs_per_preset = 1
 
             st.markdown("")
 
@@ -1273,7 +1135,7 @@ with tab_bench:
                 st.caption(
                     f"Strategie selezionate: {', '.join(selected_names)} · "
                     f"Visione: {vis_values} · Comunicazione: {comm_values} · "
-                    f"Run/preset: {bench_runs_per_preset}"
+                    "Run/preset: 1"
                 )
             else:
                 st.caption("Nessuna strategia selezionata.")
@@ -1323,7 +1185,6 @@ with tab_bench:
 
         all_results = []
         run_rows = []
-        preset_curves = {}
         t0_bench = time.perf_counter()
         total_jobs = max(1, actual_n * bench_runs_per_preset)
         job_done = 0
@@ -1355,7 +1216,6 @@ with tab_bench:
             avg_vis = np.mean([vis_r for _, vis_r, _ in preset])
             avg_comm = np.mean([comm_r for _, _, comm_r in preset])
             run_rows_this_preset = []
-            curves_this_preset = []
 
             for run_i in range(bench_runs_per_preset):
                 if seed >= 0:
@@ -1381,8 +1241,6 @@ with tab_bench:
                 elapsed_sim = time.perf_counter() - t0_sim
 
                 s = sim.metrics.summary()
-                curve = _build_delivery_curve(sim.metrics.history, bench_max_ticks)
-                curves_this_preset.append(curve)
 
                 row = {
                     "preset_name": preset_name,
@@ -1399,23 +1257,10 @@ with tab_bench:
                     "completion_rate": s["completion_rate"],
                     "completed": int(bool(s["completed"])),
                     "completion_time": s["completion_time"],
-                    "completion_time_censored": int(bool(s["completion_time_censored"])),
                     "total_ticks": s["total_ticks"],
                     "average_energy": s["average_energy_consumed"],
-                    "throughput": s["throughput"],
-                    "energy_per_object": s["energy_per_object"],
                     "first_pickup_tick": s["first_pickup_tick"],
                     "first_delivery_tick": s["first_delivery_tick"],
-                    "coverage_final": s["coverage_final"],
-                    "redundancy_index": s["redundancy_index"],
-                    "cv_steps": s["cv_steps"],
-                    "cv_delivered": s["cv_delivered"],
-                    "conflict_rate": s["conflict_rate"],
-                    "blocked_move_rate": s["blocked_move_rate"],
-                    "mean_pairs_communicating": s["mean_pairs_communicating"],
-                    "network_density": s["network_density"],
-                    "idle_ratio": s["idle_ratio"],
-                    "delivery_trip_time_avg": s["delivery_trip_time_avg"],
                     "cpu_time": round(elapsed_sim, 4),
                 }
                 run_rows.append(row)
@@ -1431,9 +1276,7 @@ with tab_bench:
                     ),
                 )
 
-            preset_curves[preset_name] = curves_this_preset
             df_p = pd.DataFrame(run_rows_this_preset)
-            completed_mask = df_p["completed"] == 1
 
             all_results.append({
                 "preset_name": preset_name,
@@ -1447,39 +1290,19 @@ with tab_bench:
                 "objects_delivered": round(float(df_p["objects_delivered"].mean()), 3),
                 "total_objects": int(df_p["total_objects"].iloc[0]),
                 "delivery_rate": round(float(df_p["delivery_rate"].mean()), 4),
-                "completion_success_rate": round(float(df_p["completed"].mean()), 4),
-                "completion_time_complete_mean": round(
-                    float(df_p.loc[completed_mask, "completion_time"].mean()), 3
-                ) if completed_mask.any() else np.nan,
-                "completion_time_all_mean": round(float(df_p["completion_time"].mean()), 3),
                 "total_ticks": round(float(df_p["total_ticks"].mean()), 3),
                 "average_energy": round(float(df_p["average_energy"].mean()), 3),
-                "throughput": round(float(df_p["throughput"].mean()), 5),
-                "energy_per_object": round(float(df_p["energy_per_object"].mean()), 5),
                 "first_pickup_tick": round(float(df_p["first_pickup_tick"].dropna().mean()), 3)
                 if df_p["first_pickup_tick"].notna().any() else np.nan,
                 "first_delivery_tick": round(float(df_p["first_delivery_tick"].dropna().mean()), 3)
                 if df_p["first_delivery_tick"].notna().any() else np.nan,
-                "coverage_final": round(float(df_p["coverage_final"].mean()), 5),
-                "redundancy_index": round(float(df_p["redundancy_index"].mean()), 5),
-                "cv_steps": round(float(df_p["cv_steps"].mean()), 5),
-                "cv_delivered": round(float(df_p["cv_delivered"].mean()), 5),
-                "conflict_rate": round(float(df_p["conflict_rate"].mean()), 5),
-                "blocked_move_rate": round(float(df_p["blocked_move_rate"].mean()), 5),
-                "mean_pairs_communicating": round(float(df_p["mean_pairs_communicating"].mean()), 5),
-                "network_density": round(float(df_p["network_density"].mean()), 5),
-                "idle_ratio": round(float(df_p["idle_ratio"].mean()), 5),
-                "delivery_trip_time_avg": round(float(df_p["delivery_trip_time_avg"].mean()), 5),
                 "cpu_time": round(float(df_p["cpu_time"].sum()), 3),
-                "ticks_std": round(float(df_p["total_ticks"].std(ddof=0)), 3),
-                "completion_time_iqr": round(_iqr(df_p["completion_time"]), 3),
-                "ticks_worst": round(float(df_p["total_ticks"].max()), 3),
             })
 
             bench_status.info(
                 f"{preset_name} · {team_desc} · "
                 f"completion {df_p['completion_rate'].mean()*100:.1f}% · "
-                f"tick medi {df_p['total_ticks'].mean():.1f}"
+                f"Tick {df_p['total_ticks'].mean():.1f}"
             )
 
         total_bench_time = time.perf_counter() - t0_bench
@@ -1489,88 +1312,36 @@ with tab_bench:
         st.session_state["bench_results"] = {
             "all_results": all_results,
             "run_rows": run_rows,
-            "preset_curves": preset_curves,
             "actual_n": actual_n,
             "total_bench_time": total_bench_time,
             "bench_strategy_ids": bench_strategy_ids,
             "vis_values": vis_values,
-            "bench_runs_per_preset": bench_runs_per_preset,
         }
 
     if "bench_results" in st.session_state:
         _br = st.session_state["bench_results"]
         all_results = _br["all_results"]
-        run_rows = _br.get("run_rows", [])
-        preset_curves = _br.get("preset_curves", {})
-        actual_n = _br["actual_n"]
-        total_bench_time = _br["total_bench_time"]
-        bench_strategy_ids = _br["bench_strategy_ids"]
-        vis_values = _br["vis_values"]
-        bench_runs_per_preset = _br.get("bench_runs_per_preset", 1)
-
-        # ==============================================================
-        # RISULTATI BENCHMARK
-        # ==============================================================
 
         df = pd.DataFrame(all_results)
-        df_runs = pd.DataFrame(run_rows)
-        for col, default_val in {
-            "throughput": 0.0,
-            "energy_per_object": 0.0,
-            "coverage_final": 0.0,
-            "completion_success_rate": df.get("delivery_rate", pd.Series([0.0] * len(df))).fillna(0.0),
-            "conflict_rate": 0.0,
-            "blocked_move_rate": 0.0,
-            "mean_pairs_communicating": 0.0,
-            "cv_steps": 0.0,
-            "cv_delivered": 0.0,
-            "idle_ratio": 0.0,
-            "soft_score": 0.0,
-            "dominant_strategy": "Unknown",
-        }.items():
-            if col not in df.columns:
-                df[col] = default_val
-        total_obj = df["total_objects"].iloc[0]
-
-        # Score composito opzionale (vista soft)
-        norm_cols = {
-            "throughput": (df["throughput"] - df["throughput"].min()) /
-            max(1e-9, (df["throughput"].max() - df["throughput"].min())),
-            "energy_per_object": (df["energy_per_object"] - df["energy_per_object"].min()) /
-            max(1e-9, (df["energy_per_object"].max() - df["energy_per_object"].min())),
-            "conflict_rate": (df["conflict_rate"] - df["conflict_rate"].min()) /
-            max(1e-9, (df["conflict_rate"].max() - df["conflict_rate"].min())),
-        }
-        df["soft_score"] = (
-            (w_completion * df["delivery_rate"]) +
-            (w_throughput * norm_cols["throughput"]) -
-            (w_energy * norm_cols["energy_per_object"]) -
-            (w_conflict * norm_cols["conflict_rate"])
-        )
-        df.loc[df["delivery_rate"] < 1.0, "soft_score"] -= 0.35
 
         st.divider()
         st.subheader("📊 Risultati benchmark")
 
-        # --- Metriche aggregate ---
-        mc1, mc2, mc3, mc4 = st.columns(4)
-        mc1.metric("Preset testati", actual_n)
-        mc2.metric("Completion medio", f"{df['delivery_rate'].mean()*100:.1f}%")
-        mc3.metric("Throughput medio", f"{df['throughput'].mean():.3f}")
-        mc4.metric("Energy/Object medio", f"{df['energy_per_object'].mean():.2f}")
-
-        me1, me2, me3, me4 = st.columns(4)
-        me1.metric("Tick medi", f"{df['total_ticks'].mean():.1f}")
-        me2.metric("Copertura EMPTY", f"{df['coverage_final'].mean()*100:.1f}%")
-        me3.metric("Run complete", f"{df['completion_success_rate'].mean()*100:.1f}%")
-        me4.metric("Tempo CPU totale", f"{total_bench_time:.2f}s")
-
-        _csv_cols = ["preset_name", "config_str", "team_desc", "avg_vis", "avg_comm",
-                     "objects_delivered", "total_objects", "delivery_rate", "completion_success_rate",
-                     "total_ticks", "average_energy", "throughput", "energy_per_object",
-                     "coverage_final", "redundancy_index", "conflict_rate",
-                     "blocked_move_rate", "mean_pairs_communicating", "soft_score", "cpu_time"]
-        _csv_bytes = df[_csv_cols].to_csv(index=False).encode("utf-8")
+        _csv_cols = [
+            "preset_name",
+            "config_str",
+            "team_desc",
+            "avg_vis",
+            "avg_comm",
+            "objects_delivered",
+            "total_objects",
+            "delivery_rate",
+            "total_ticks",
+            "average_energy",
+            "cpu_time",
+        ]
+        _csv_cols_present = [c for c in _csv_cols if c in df.columns]
+        _csv_bytes = df[_csv_cols_present].to_csv(index=False).encode("utf-8")
         st.download_button(
             "💾 Scarica tutti i risultati (CSV)",
             data=_csv_bytes,
@@ -1580,54 +1351,30 @@ with tab_bench:
             help="Salva subito i risultati su disco — resistono a qualsiasi ricaricamento della pagina",
         )
 
-        # ==============================================================
-        # CLASSIFICA PRESET MIGLIORI
-        # ==============================================================
-
-        st.divider()
-        st.markdown("#### 🏆 Classifica preset migliori")
-        st.caption("Strict: completion_rate desc -> tick asc -> energia asc. Soft: score composito pesato.")
-
+        # Classifica principale: tick medi crescenti
         df_rank = df.sort_values(
-            by=["delivery_rate", "total_ticks", "energy_per_object"],
-            ascending=[False, True, True],
+            by=["total_ticks", "delivery_rate", "average_energy"],
+            ascending=[True, False, True],
         ).reset_index(drop=True)
 
-        df_soft = df.sort_values(by=["soft_score"], ascending=[False]).reset_index(drop=True)
-
+        st.markdown("#### 🏆 Top 10 preset ")
         df_rank_display = pd.DataFrame({
-            "Pos.": range(1, len(df_rank) + 1),
-            "Preset": df_rank["preset_name"],
-            "Team": df_rank["team_desc"],
-            "Configurazione": df_rank["config_str"],
-            "Completion": [f"{r*100:.1f}%" for r in df_rank["delivery_rate"]],
-            "Run complete": [f"{r*100:.1f}%" for r in df_rank["completion_success_rate"]],
-            "Tick medi": df_rank["total_ticks"].round(2),
-            "Energy/Object": df_rank["energy_per_object"].round(3),
-            "Coverage": [f"{c*100:.1f}%" for c in df_rank["coverage_final"]],
-            "Conflict": df_rank["conflict_rate"].round(3),
-            "Soft score": df_rank["soft_score"].round(3),
+            "Pos.": range(1, min(10, len(df_rank)) + 1),
+            "Preset": df_rank.head(10)["preset_name"],
+            "Team": df_rank.head(10)["team_desc"],
+            "Configurazione": df_rank.head(10)["config_str"],
+            "Completion": [f"{r*100:.1f}%" for r in df_rank.head(10)["delivery_rate"]],
+            "Tick": df_rank.head(10)["total_ticks"].round(2),
+            "Energia media": df_rank.head(10)["average_energy"].round(2),
         })
         st.dataframe(df_rank_display, width='stretch', hide_index=True)
 
-        st.markdown("**Top 5 (soft score)**")
-        st.dataframe(
-            pd.DataFrame({
-                "Pos.": range(1, min(6, len(df_soft) + 1)),
-                "Preset": df_soft.head(5)["preset_name"].values,
-                "Soft score": df_soft.head(5)["soft_score"].round(3).values,
-                "Completion": (df_soft.head(5)["delivery_rate"] * 100).round(1).astype(str) + "%",
-                "Tick medi": df_soft.head(5)["total_ticks"].round(1).values,
-            }),
-            width='stretch',
-            hide_index=True,
-        )
+        total_obj = df["total_objects"].iloc[0]
 
-        # Top 3 dettaglio
+        st.markdown("#### ⬇ Preset scaricabili (Top 5)")
         if len(df_rank) >= 1:
-            st.markdown("**Top 3:**")
-            medals = ["🥇", "🥈", "🥉"]
-            for i in range(min(3, len(df_rank))):
+            medals = ["🥇", "🥈", "🥉", "4.", "5."]
+            for i in range(min(5, len(df_rank))):
                 row = df_rank.iloc[i]
                 col_info, col_btn = st.columns([5, 1])
                 with col_info:
@@ -1637,7 +1384,7 @@ with tab_bench:
                         f"in **{row['total_ticks']} tick** — "
                         f"energia {row['average_energy']:.1f}"
                     )
-                    st.caption(f"    Dettaglio: {row['config_str']}")
+                    st.caption(f"Dettaglio: {row['config_str']}")
                 with col_btn:
                     dl_data = {
                         "name": row["preset_name"],
@@ -1652,455 +1399,18 @@ with tab_bench:
                         key=f"dl_top_{i}",
                     )
 
-        # ==============================================================
-        # TABELLA COMPLETA
-        # ==============================================================
-
         st.divider()
-        st.markdown("#### 📋 Tutti i preset")
-
+        st.markdown("#### 📋 Classifica totale")
+        df_all_sorted = df.sort_values(by=["total_ticks", "delivery_rate"], ascending=[True, False]).reset_index(drop=True)
         df_all_display = pd.DataFrame({
-            "Preset": df["preset_name"],
-            "Team": df["team_desc"],
-            "Configurazione": df["config_str"],
-            "Consegnati": df["objects_delivered"],
-            "Tick": df["total_ticks"],
-            "Energia media": df["average_energy"].round(1),
-            "CPU (s)": df["cpu_time"],
+            "Pos.": range(1, len(df_all_sorted) + 1),
+            "Preset": df_all_sorted["preset_name"],
+            "Team": df_all_sorted["team_desc"],
+            "Configurazione": df_all_sorted["config_str"],
+            "Consegnati": df_all_sorted["objects_delivered"],
+            "Completion": [f"{r*100:.1f}%" for r in df_all_sorted["delivery_rate"]],
+            "Tick": df_all_sorted["total_ticks"].round(2),
+            "Energia media": df_all_sorted["average_energy"].round(1),
+            "CPU (s)": df_all_sorted["cpu_time"],
         })
         st.dataframe(df_all_display, width='stretch', hide_index=True)
-
-        # ==============================================================
-        # RAGGRUPPAMENTI
-        # ==============================================================
-
-        # Esplodi le configurazioni per-agente per analisi per strategia
-        agent_level_rows = []
-        for r in all_results:
-            for strat_id, vis_r, comm_r in r["preset_raw"]:
-                agent_level_rows.append({
-                    "preset_name": r["preset_name"],
-                    "strategy": STRATEGIES[strat_id][0],
-                    "vis_radius": vis_r,
-                    "comm_radius": comm_r,
-                    "total_ticks": r["total_ticks"],
-                    "average_energy": r["average_energy"],
-                    "objects_delivered": r["objects_delivered"],
-                })
-        df_agents_flat = pd.DataFrame(agent_level_rows)
-
-        metric_cols = ["total_ticks", "average_energy", "objects_delivered"]
-
-        # --- Per strategia (contando quante volte compare e performance media dei team che la usano) ---
-        st.divider()
-        st.markdown("#### 📊 Raggruppamento per strategia")
-        st.caption("Performance media dei preset che contengono ciascuna strategia")
-        df_by_strat = _grouped_stats(df_agents_flat, "strategy", metric_cols)
-        st.dataframe(df_by_strat, width='stretch')
-
-        # --- Per raggio visione ---
-        st.markdown("#### 📊 Raggruppamento per raggio visione")
-        st.caption("Performance media dei preset che contengono agenti con ciascun raggio")
-        df_by_vis = _grouped_stats(df_agents_flat, "vis_radius", metric_cols)
-        st.dataframe(df_by_vis, width='stretch')
-
-        # --- Per raggio Comunicazione ---
-        st.markdown("#### 📊 Raggruppamento per raggio Comunicazione")
-        df_by_comm = _grouped_stats(df_agents_flat, "comm_radius", metric_cols)
-        st.dataframe(df_by_comm, width='stretch')
-
-        # ==============================================================
-        # GRAFICI
-        # ==============================================================
-
-        st.divider()
-        st.subheader("📈 Grafici di analisi")
-
-        # --- 1. Tick per preset (bar chart) ---
-        st.markdown("#### Tick per preset")
-        _fig_w = min(max(10, actual_n * 0.35), 38)
-        fig1, ax1 = plt.subplots(figsize=(_fig_w, 4), facecolor="#0e1117")
-        _style_dark_chart(ax1)
-
-        x_labels_bar = [f"P{i+1}" for i in range(actual_n)]
-        # Colore basato sulla strategia dominante nel team
-        dominant_colors = []
-        for r in all_results:
-            strat_counts = {}
-            for sid, _, _ in r["preset_raw"]:
-                sn = STRATEGIES[sid][0]
-                strat_counts[sn] = strat_counts.get(sn, 0) + 1
-            dominant = max(strat_counts, key=strat_counts.get)
-            dominant_colors.append(STRATEGY_COLORS.get(dominant, "#888"))
-
-        ax1.bar(range(actual_n), df["total_ticks"], color=dominant_colors,
-                edgecolor="#444", linewidth=0.5)
-        ax1.axhline(y=df["total_ticks"].mean(), color="#FFD700", linestyle="--",
-                    linewidth=1.5, label=f"Media: {df['total_ticks'].mean():.1f}")
-        if actual_n <= 60:
-            ax1.set_xticks(range(actual_n))
-            ax1.set_xticklabels(x_labels_bar, fontsize=6, color="#aaa")
-        else:
-            ax1.set_xticks([])
-        ax1.set_ylabel("Tick", color="#ccc", fontsize=9)
-        ax1.legend(fontsize=8, facecolor="#1a1a2e", edgecolor="#555", labelcolor="white")
-        plt.tight_layout()
-        st.pyplot(fig1)
-        plt.close(fig1)
-
-        # --- 2. Consegne per preset (bar chart) ---
-        st.markdown("#### Oggetti consegnati per preset")
-        fig2, ax2 = plt.subplots(figsize=(_fig_w, 4), facecolor="#0e1117")
-        _style_dark_chart(ax2)
-
-        delivered_vals = df["objects_delivered"].values
-        colors_bar2 = [
-            "#55A868" if d == total_obj else "#DD8452" if d > total_obj * 0.5 else "#C44E52"
-            for d in delivered_vals
-        ]
-        ax2.bar(range(actual_n), delivered_vals, color=colors_bar2,
-                edgecolor="#444", linewidth=0.5)
-        ax2.axhline(y=total_obj, color="#FFD700", linestyle=":", linewidth=1,
-                    label=f"Totale: {total_obj}")
-        if actual_n <= 60:
-            ax2.set_xticks(range(actual_n))
-            ax2.set_xticklabels(x_labels_bar, fontsize=6, color="#aaa")
-        else:
-            ax2.set_xticks([])
-        ax2.set_ylabel("Consegnati", color="#ccc", fontsize=9)
-        ax2.legend(fontsize=8, facecolor="#1a1a2e", edgecolor="#555", labelcolor="white")
-        plt.tight_layout()
-        st.pyplot(fig2)
-        plt.close(fig2)
-
-        # --- 3. Box plot per strategia ---
-        strat_names_present = df_agents_flat["strategy"].unique().tolist()
-        if len(strat_names_present) > 1:
-            st.markdown("#### Box plot tick per strategia (team che la contengono)")
-            fig3, ax3 = plt.subplots(figsize=(10, 4), facecolor="#0e1117")
-            _style_dark_chart(ax3)
-            # Deduplica: per ogni strategia, prendi i tick dei preset unici che la contengono
-            data_per_strat = []
-            for sname in strat_names_present:
-                preset_ticks = df_agents_flat[
-                    df_agents_flat["strategy"] == sname
-                ]["total_ticks"].drop_duplicates().values
-                data_per_strat.append(preset_ticks if len(preset_ticks) > 0 else [0])
-            bp = ax3.boxplot(
-                data_per_strat, patch_artist=True, widths=0.5,
-                medianprops=dict(color="#FFD700", linewidth=2),
-                whiskerprops=dict(color="#aaa"),
-                capprops=dict(color="#aaa"),
-                flierprops=dict(markerfacecolor="#C44E52", marker="o", markersize=5),
-            )
-            for patch, sname in zip(bp["boxes"], strat_names_present):
-                patch.set_facecolor(STRATEGY_COLORS.get(sname, "#888"))
-                patch.set_edgecolor(STRATEGY_COLORS.get(sname, "#888"))
-            ax3.set_xticklabels(strat_names_present, color="#ccc", fontsize=8)
-            ax3.set_ylabel("Tick", color="#ccc", fontsize=9)
-            plt.tight_layout()
-            st.pyplot(fig3)
-            plt.close(fig3)
-
-        # --- 4. Box plot per raggio visione ---
-        vis_unique = sorted(df_agents_flat["vis_radius"].unique())
-        if len(vis_unique) > 1:
-            st.markdown("#### Box plot tick per raggio visione")
-            fig4, ax4 = plt.subplots(figsize=(10, 4), facecolor="#0e1117")
-            _style_dark_chart(ax4)
-            data_per_vis = [
-                df_agents_flat[df_agents_flat["vis_radius"] == v]["total_ticks"].drop_duplicates().values
-                for v in vis_unique
-            ]
-            bp4 = ax4.boxplot(
-                data_per_vis, patch_artist=True, widths=0.5,
-                boxprops=dict(facecolor="#4ECDC4", color="#4ECDC4"),
-                medianprops=dict(color="#FFD700", linewidth=2),
-                whiskerprops=dict(color="#aaa"),
-                capprops=dict(color="#aaa"),
-                flierprops=dict(markerfacecolor="#C44E52", marker="o", markersize=5),
-            )
-            ax4.set_xticklabels([str(v) for v in vis_unique], color="#ccc", fontsize=8)
-            ax4.set_xlabel("Raggio visione", color="#ccc", fontsize=9)
-            ax4.set_ylabel("Tick", color="#ccc", fontsize=9)
-            plt.tight_layout()
-            st.pyplot(fig4)
-            plt.close(fig4)
-
-        # --- 5. Box plot per raggio Comunicazione ---
-        comm_unique = sorted(df_agents_flat["comm_radius"].unique())
-        if len(comm_unique) > 1:
-            st.markdown("#### Box plot tick per raggio Comunicazione")
-            fig5, ax5 = plt.subplots(figsize=(8, 4), facecolor="#0e1117")
-            _style_dark_chart(ax5)
-            data_per_comm = [
-                df_agents_flat[df_agents_flat["comm_radius"] == c]["total_ticks"].drop_duplicates().values
-                for c in comm_unique
-            ]
-            bp5 = ax5.boxplot(
-                data_per_comm, patch_artist=True, widths=0.4,
-                boxprops=dict(facecolor="#FF6B35", color="#FF6B35"),
-                medianprops=dict(color="#FFD700", linewidth=2),
-                whiskerprops=dict(color="#aaa"),
-                capprops=dict(color="#aaa"),
-                flierprops=dict(markerfacecolor="#C44E52", marker="o", markersize=5),
-            )
-            ax5.set_xticklabels([str(c) for c in comm_unique], color="#ccc", fontsize=8)
-            ax5.set_xlabel("Raggio Comunicazione", color="#ccc", fontsize=9)
-            ax5.set_ylabel("Tick", color="#ccc", fontsize=9)
-            plt.tight_layout()
-            st.pyplot(fig5)
-            plt.close(fig5)
-
-        # --- 6. Scatter: tick vs consegne ---
-        st.markdown("#### Scatter tick vs consegne (colore = strategia dominante)")
-        fig6, ax6 = plt.subplots(figsize=(10, 5), facecolor="#0e1117")
-        _style_dark_chart(ax6)
-        ax6.scatter(
-            df["total_ticks"], df["objects_delivered"],
-            c=dominant_colors, s=60, edgecolors="#555", linewidths=0.5, zorder=5,
-        )
-        ax6.axhline(y=total_obj, color="#FFD700", linestyle=":", linewidth=1, alpha=0.6)
-        ax6.set_xlabel("Tick", color="#ccc", fontsize=9)
-        ax6.set_ylabel("Consegnati", color="#ccc", fontsize=9)
-        # Legenda manuale per strategie presenti
-        legend_handles = [
-            mpatches.Patch(color=STRATEGY_COLORS.get(sn, "#888"), label=sn)
-            for sn in strat_names_present
-        ]
-        ax6.legend(handles=legend_handles, fontsize=8,
-                   facecolor="#1a1a2e", edgecolor="#555", labelcolor="white")
-        plt.tight_layout()
-        st.pyplot(fig6)
-        plt.close(fig6)
-
-        # --- 7. Heatmap: strategia dominante × vis media (tick medi) ---
-        # Costruisci colonna "dominant strategy" e "vis bucket" a livello preset
-        df["dominant_strategy"] = [
-            max(
-                {STRATEGIES[sid][0]: 0 for sid in bench_strategy_ids} |
-                {STRATEGIES[sid][0]: sum(1 for s, _, _ in r["preset_raw"] if s == sid)
-                 for sid in bench_strategy_ids},
-                key=lambda sn: sum(1 for s, _, _ in r["preset_raw"] if STRATEGIES[s][0] == sn)
-            )
-            for r in all_results
-        ]
-        pivot = df.pivot_table(
-            values="total_ticks", index="dominant_strategy",
-            columns=pd.cut(df["avg_vis"], bins=max(1, len(vis_values)),
-                          include_lowest=True) if len(vis_values) > 1 else "avg_vis",
-            aggfunc="mean"
-        )
-        if not pivot.empty and pivot.shape[0] > 0 and pivot.shape[1] > 1:
-            st.markdown("#### Heatmap: strategia dominante x raggio visione medio (tick)")
-            fig7, ax7 = plt.subplots(
-                figsize=(8, max(3, len(pivot.index) * 0.8)), facecolor="#0e1117"
-            )
-            _style_dark_chart(ax7)
-            im = ax7.imshow(pivot.values, cmap="RdYlGn_r", aspect="auto")
-            ax7.set_xticks(range(len(pivot.columns)))
-            ax7.set_xticklabels([str(c) for c in pivot.columns], color="#ccc", fontsize=7)
-            ax7.set_yticks(range(len(pivot.index)))
-            ax7.set_yticklabels(pivot.index.tolist(), color="#ccc")
-            ax7.set_xlabel("Raggio visione medio", color="#ccc", fontsize=9)
-            for i in range(len(pivot.index)):
-                for j in range(len(pivot.columns)):
-                    val = pivot.values[i, j]
-                    if not np.isnan(val):
-                        ax7.text(j, i, f"{val:.0f}", ha="center", va="center",
-                                color="white", fontsize=9, fontweight="bold")
-            cbar = fig7.colorbar(im, ax=ax7)
-            cbar.ax.yaxis.set_tick_params(color="#aaa")
-            for label in cbar.ax.yaxis.get_ticklabels():
-                label.set_color("#aaa")
-            plt.tight_layout()
-            st.pyplot(fig7)
-            plt.close(fig7)
-
-        # ==============================================================
-        # DASHBOARD AVANZATA (METRICHE + ROBUSTEZZA)
-        # ==============================================================
-
-        st.divider()
-        st.subheader("🧭 Dashboard benchmark avanzata")
-
-        # A) Pareto scatter (tempo/completion/costo)
-        st.markdown("#### Pareto scatter: Tick vs Completion (size = Energy/Object)")
-        figp, axp = plt.subplots(figsize=(10, 5), facecolor="#0e1117")
-        _style_dark_chart(axp)
-        size_vals = 80 + (df["energy_per_object"] * 30)
-        p_colors = [STRATEGY_COLORS.get(s, "#888") for s in df["dominant_strategy"]]
-        axp.scatter(
-            df["total_ticks"],
-            df["delivery_rate"],
-            s=size_vals,
-            c=p_colors,
-            alpha=0.75,
-            edgecolors="#333",
-            linewidths=0.7,
-        )
-        axp.set_xlabel("Tick medi", color="#ccc")
-        axp.set_ylabel("Completion rate", color="#ccc")
-        axp.set_ylim(-0.02, 1.02)
-        for _, row in df.nsmallest(min(5, len(df)), "total_ticks").iterrows():
-            axp.annotate(row["preset_name"], (row["total_ticks"], row["delivery_rate"]),
-                         color="#ddd", fontsize=7, xytext=(4, 4), textcoords="offset points")
-        plt.tight_layout()
-        st.pyplot(figp)
-        plt.close(figp)
-
-        if not df_runs.empty:
-            # B) Boxplot/violin-like robustezza per strategia dominante
-            st.markdown("#### Robustezza per strategia dominante (distribuzioni run-level)")
-            figb, axes = plt.subplots(1, 3, figsize=(14, 4), facecolor="#0e1117")
-            for ax in axes:
-                _style_dark_chart(ax)
-
-            strat_order = sorted(df_runs["dominant_strategy"].dropna().unique().tolist())
-            if strat_order:
-                data_completion = [
-                    df_runs[df_runs["dominant_strategy"] == s]["completion_rate"].values
-                    for s in strat_order
-                ]
-                data_ticks = [
-                    df_runs[df_runs["dominant_strategy"] == s]["total_ticks"].values
-                    for s in strat_order
-                ]
-                data_energy = [
-                    df_runs[df_runs["dominant_strategy"] == s]["energy_per_object"].values
-                    for s in strat_order
-                ]
-
-                b1 = axes[0].boxplot(data_completion, patch_artist=True)
-                b2 = axes[1].boxplot(data_ticks, patch_artist=True)
-                b3 = axes[2].boxplot(data_energy, patch_artist=True)
-                for boxes in (b1["boxes"], b2["boxes"], b3["boxes"]):
-                    for patch, sname in zip(boxes, strat_order):
-                        col = STRATEGY_COLORS.get(sname, "#888")
-                        patch.set_facecolor(col)
-                        patch.set_alpha(0.55)
-                        patch.set_edgecolor(col)
-
-                axes[0].set_title("Completion", color="#ddd", fontsize=9)
-                axes[1].set_title("Total ticks", color="#ddd", fontsize=9)
-                axes[2].set_title("Energy/Object", color="#ddd", fontsize=9)
-                for ax in axes:
-                    ax.set_xticks(range(1, len(strat_order) + 1))
-                    ax.set_xticklabels(strat_order, rotation=30, ha="right", color="#ccc", fontsize=8)
-                plt.tight_layout()
-                st.pyplot(figb)
-                plt.close(figb)
-
-            # C) Curva consegne cumulative con banda IQR (top preset strict)
-            st.markdown("#### Curve cumulative deliveries (mediana + banda 25-75)")
-            top_presets = df_rank.head(min(4, len(df_rank)))["preset_name"].tolist()
-            figc, axc = plt.subplots(figsize=(10, 5), facecolor="#0e1117")
-            _style_dark_chart(axc)
-            x_ticks = np.arange(1, bench_max_ticks + 1)
-            for preset_name in top_presets:
-                curves = preset_curves.get(preset_name, [])
-                if not curves:
-                    continue
-                curves_arr = np.array(curves)
-                p25 = np.percentile(curves_arr, 25, axis=0)
-                p50 = np.percentile(curves_arr, 50, axis=0)
-                p75 = np.percentile(curves_arr, 75, axis=0)
-                color = STRATEGY_COLORS.get(
-                    df.loc[df["preset_name"] == preset_name, "dominant_strategy"].iloc[0],
-                    "#888",
-                )
-                axc.fill_between(x_ticks, p25, p75, color=color, alpha=0.15)
-                axc.plot(x_ticks, p50, color=color, linewidth=2, label=preset_name)
-            axc.set_xlabel("Tick", color="#ccc")
-            axc.set_ylabel("Oggetti consegnati", color="#ccc")
-            axc.legend(fontsize=8, facecolor="#1a1a2e", edgecolor="#555", labelcolor="white")
-            plt.tight_layout()
-            st.pyplot(figc)
-            plt.close(figc)
-
-            # D) ECDF del completion time (solo run completate)
-            st.markdown("#### ECDF completion time (solo run completate)")
-            completed_runs = df_runs[df_runs["completed"] == 1]
-            if not completed_runs.empty:
-                fige, axe = plt.subplots(figsize=(10, 4.5), facecolor="#0e1117")
-                _style_dark_chart(axe)
-                for sname, g in completed_runs.groupby("dominant_strategy"):
-                    x, y = _ecdf(g["completion_time"].values)
-                    if x.size == 0:
-                        continue
-                    axe.plot(x, y, label=sname, color=STRATEGY_COLORS.get(sname, "#888"), linewidth=2)
-                axe.set_xlabel("Tick al completamento", color="#ccc")
-                axe.set_ylabel("F(t)", color="#ccc")
-                axe.legend(fontsize=8, facecolor="#1a1a2e", edgecolor="#555", labelcolor="white")
-                plt.tight_layout()
-                st.pyplot(fige)
-                plt.close(fige)
-            else:
-                st.info("Nessuna run ha completato al 100%: ECDF non disponibile.")
-
-            # E) Comunicazione vs performance
-            st.markdown("#### Comunicazione vs performance (color = conflict rate)")
-            figg, axg = plt.subplots(figsize=(9, 5), facecolor="#0e1117")
-            _style_dark_chart(axg)
-            sc = axg.scatter(
-                df["mean_pairs_communicating"],
-                df["throughput"],
-                c=df["conflict_rate"],
-                cmap="viridis",
-                s=95,
-                alpha=0.85,
-                edgecolors="#222",
-            )
-            axg.set_xlabel("Mean communicating pairs", color="#ccc")
-            axg.set_ylabel("Throughput", color="#ccc")
-            cbar = figg.colorbar(sc, ax=axg)
-            cbar.ax.yaxis.set_tick_params(color="#aaa")
-            for label in cbar.ax.yaxis.get_ticklabels():
-                label.set_color("#aaa")
-            plt.tight_layout()
-            st.pyplot(figg)
-            plt.close(figg)
-
-            # F) Tabella robustezza
-            st.markdown("#### Robustezza (mean/std/median/IQR/worst)")
-            robust_rows = []
-            for preset_name, g in df_runs.groupby("preset_name"):
-                tick_stats = _robust_stats(g["total_ticks"])
-                completion_stats = _robust_stats(g["completion_rate"])
-                energy_stats = _robust_stats(g["energy_per_object"])
-                robust_rows.append({
-                    "Preset": preset_name,
-                    "Completion mean": round(completion_stats["mean"], 3),
-                    "Completion std": round(completion_stats["std"], 3),
-                    "Tick median": round(tick_stats["median"], 2),
-                    "Tick IQR": round(tick_stats["iqr"], 2),
-                    "Tick worst": round(tick_stats["worst"], 2),
-                    "Energy mean": round(energy_stats["mean"], 3),
-                    "Energy IQR": round(energy_stats["iqr"], 3),
-                })
-            df_robust = pd.DataFrame(robust_rows).sort_values(
-                by=["Completion mean", "Tick median", "Energy mean"],
-                ascending=[False, True, True],
-            )
-            st.dataframe(df_robust, width='stretch', hide_index=True)
-
-            # G) Fairness chart per top preset
-            st.markdown("#### Fairness chart (top preset strict)")
-            fairness_df = df_rank.head(min(5, len(df_rank)))[
-                ["preset_name", "cv_steps", "cv_delivered", "idle_ratio"]
-            ].copy()
-            if not fairness_df.empty:
-                figf, axf = plt.subplots(figsize=(10, 4.5), facecolor="#0e1117")
-                _style_dark_chart(axf)
-                x = np.arange(len(fairness_df))
-                width = 0.26
-                axf.bar(x - width, fairness_df["cv_steps"], width=width, label="CV steps")
-                axf.bar(x, fairness_df["cv_delivered"], width=width, label="CV delivered")
-                axf.bar(x + width, fairness_df["idle_ratio"], width=width, label="Idle ratio")
-                axf.set_xticks(x)
-                axf.set_xticklabels(fairness_df["preset_name"].tolist(), color="#ccc", fontsize=8)
-                axf.set_ylabel("Indice (piu basso e meglio)", color="#ccc")
-                axf.legend(fontsize=8, facecolor="#1a1a2e", edgecolor="#555", labelcolor="white")
-                plt.tight_layout()
-                st.pyplot(figf)
-                plt.close(figf)
