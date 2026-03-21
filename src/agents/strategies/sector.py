@@ -18,13 +18,14 @@ if TYPE_CHECKING:
     from src.environment.environment import Environment
     from src.pathfinding.pathfinder import Pathfinder
 
-NUM_SECTORS_SIDE = 2   # divide la griglia in 2x2 = 4 settori + centro
+# Nota: la suddivisione è implementata come bande orizzontali
+# (una per agente) nella funzione _compute_sector.
 
 
 class SectorStrategy(ExplorationStrategy):
     """
-    Divide la griglia in settori; l'agente si specializza sul settore
-    corrispondente al proprio ID (mod numero settori).
+    Divide la griglia in bande orizzontali; l'agente si specializza
+    nella banda corrispondente al proprio ID (mod numero agenti).
     """
 
     def __init__(self, num_agents: int = 5) -> None:

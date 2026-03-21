@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import io
 import itertools
 import json
 import os
 import random as _random
 import time
+import zipfile
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -233,26 +235,133 @@ def _run_benchmark(instance_path: str, seed: int, controls: dict):
     bench_status.empty()
 
 
-def _render_downloadable_top_presets(df_rank):
-    st.markdown("#### ⬇ Preset scaricabili (Top 5)")
-    medals = ["🥇", "🥈", "🥉", "4.", "5."]
-    for i in range(min(5, len(df_rank))):
-        row = df_rank.iloc[i]
-        col_info, col_btn = st.columns([5, 1])
-        with col_info:
-            st.markdown(
-                f"{medals[i]} **{row['preset_name']}** — {row['team_desc']} — consegnati {row['objects_delivered']}/{row['total_objects']} in **{row['total_ticks']} tick** — energia {row['average_energy']:.1f}"
-            )
-            st.caption(f"Dettaglio: {row['config_str']}")
-        with col_btn:
-            dl_data = {"name": row["preset_name"], "num_agents": len(row["agent_configs"]), "agents": row["agent_configs"]}
-            st.download_button(
-                label="⬇ Scarica",
-                data=json.dumps(dl_data, indent=4),
-                file_name=f"{row['preset_name'].replace(' ', '_')}.json",
-                mime="application/json",
-                key=f"dl_top_{i}",
-            )
+def _create_benchmark_zip(df, results, seed, instance_path=""):
+    """Crea uno ZIP con tutti i dati e i grafici del benchmark."""
+    buf_zip = io.BytesIO()
+    
+    with zipfile.ZipFile(buf_zip, "w", zipfile.ZIP_DEFLATED) as z:
+        # 1. Summary CSV
+        csv_cols = [
+            "preset_name", "config_str", "team_desc", "avg_vis", "avg_comm", "objects_delivered",
+            "total_objects", "delivery_rate", "total_ticks", "average_energy", "cpu_time",
+        ]
+        csv_data = df[[c for c in csv_cols if c in df.columns]].to_csv(index=False)
+        z.writestr("summary.csv", csv_data)
+        
+        # 2. Full results JSON (with agent_configs)
+        z.writestr("results.json", json.dumps(results["all_results"], indent=2))
+        
+        # 3. Curves JSON
+        curves_serializable = {k: v for k, v in results.get("preset_curves", {}).items()}
+        z.writestr("curves.json", json.dumps(curves_serializable, indent=2))
+        
+        # 4. Metadata JSON
+        metadata = {
+            "format_version": "1.0",
+            "generated_at": time.time(),
+            "generated_at_iso": time.strftime("%Y-%m-%d %H:%M:%S"),
+            "seed": seed,
+            "instance_path": instance_path,
+            "bench_max_ticks": results.get("bench_max_ticks"),
+            "bench_strategy_ids": results.get("bench_strategy_ids"),
+            "vis_values": results.get("vis_values"),
+            "comm_values": results.get("comm_values"),
+            "actual_presets_run": results.get("actual_n", 0),
+            "total_bench_time_seconds": results.get("total_bench_time", 0),
+        }
+        z.writestr("metadata.json", json.dumps(metadata, indent=2))
+        
+        # 5. Genera e salva i 3 grafici principali
+        df_rank = df.sort_values(
+            by=["total_ticks", "delivery_rate", "average_energy"],
+            ascending=[True, False, True]
+        ).reset_index(drop=True)
+        bench_max_ticks = int(results.get("bench_max_ticks", 500))
+        preset_curves = results.get("preset_curves", {})
+        
+        # Grafico Tick
+        fig_ticks, ax_ticks = plt.subplots(figsize=(min(max(10, len(df_rank) * 0.35), 38), 4.6), facecolor="#0e1117")
+        style_dark_chart(ax_ticks)
+        ax_ticks.bar(
+            range(len(df_rank)),
+            df_rank["total_ticks"].values,
+            color=[STRATEGY_COLORS.get(s, "#888") for s in df_rank["dominant_strategy"].tolist()],
+            edgecolor="#444",
+            linewidth=0.5,
+        )
+        mean_ticks = float(np.mean(df_rank["total_ticks"].values))
+        ax_ticks.axhline(y=mean_ticks, color="#FFD700", linestyle="--", linewidth=1.5, label=f"Media: {mean_ticks:.1f}")
+        ax_ticks.set_title("Tick per preset", color="white")
+        ax_ticks.set_xlabel("Preset", color="white")
+        ax_ticks.set_ylabel("Tick", color="white")
+        if len(df_rank) <= 60:
+            ax_ticks.set_xticks(range(len(df_rank)))
+            ax_ticks.set_xticklabels(df_rank["preset_name"].tolist(), rotation=35, ha="right", color="white", fontsize=7)
+        ax_ticks.legend(fontsize=8, facecolor="#1a1a2e", edgecolor="#555", labelcolor="white")
+        fig_ticks.tight_layout()
+        buf_ticks = io.BytesIO()
+        fig_ticks.savefig(buf_ticks, format="png", dpi=100, facecolor="#0e1117")
+        buf_ticks.seek(0)
+        z.writestr("plot_ticks.png", buf_ticks.read())
+        plt.close(fig_ticks)
+        
+        # Grafico Oggetti
+        fig_obj, ax_obj = plt.subplots(figsize=(min(max(10, len(df_rank) * 0.35), 38), 4.6), facecolor="#0e1117")
+        style_dark_chart(ax_obj)
+        total_obj = int(df["total_objects"].iloc[0]) if len(df) > 0 else 10
+        y_objects = df_rank["objects_delivered"].values
+        ax_obj.bar(
+            range(len(df_rank)),
+            y_objects,
+            color=["#55A868" if d >= total_obj else "#DD8452" if d >= total_obj * 0.5 else "#C44E52" for d in y_objects],
+            edgecolor="#444",
+            linewidth=0.5,
+        )
+        ax_obj.axhline(y=total_obj, color="#FFD700", linestyle=":", linewidth=1.2, label=f"Totale oggetti: {total_obj}")
+        ax_obj.set_title("Oggetti consegnati per preset", color="white")
+        ax_obj.set_xlabel("Preset", color="white")
+        ax_obj.set_ylabel("Oggetti consegnati", color="white")
+        if len(df_rank) <= 60:
+            ax_obj.set_xticks(range(len(df_rank)))
+            ax_obj.set_xticklabels(df_rank["preset_name"].tolist(), rotation=35, ha="right", color="white", fontsize=7)
+        ax_obj.legend(fontsize=8, facecolor="#1a1a2e", edgecolor="#555", labelcolor="white")
+        fig_obj.tight_layout()
+        buf_obj = io.BytesIO()
+        fig_obj.savefig(buf_obj, format="png", dpi=100, facecolor="#0e1117")
+        buf_obj.seek(0)
+        z.writestr("plot_objects.png", buf_obj.read())
+        plt.close(fig_obj)
+        
+        # Grafico Curve cumulative
+        fig_curves, ax_curves = plt.subplots(figsize=(10, 5), facecolor="#0e1117")
+        style_dark_chart(ax_curves)
+        x_ticks = np.arange(1, bench_max_ticks + 1)
+        curves_to_show = min(10, len(df_rank))
+        preset_names = df_rank.head(curves_to_show)["preset_name"].tolist()
+        palette = plt.get_cmap("tab20")
+        for i, preset_name in enumerate(preset_names):
+            curve = preset_curves.get(preset_name)
+            if curve is None:
+                continue
+            curve_arr = np.array(curve, dtype=float)
+            if curve_arr.ndim > 1:
+                curve_arr = curve_arr[0]
+            ax_curves.plot(x_ticks, curve_arr, linewidth=2, color=palette(i % 20), label=preset_name)
+        ax_curves.set_title("Curve cumulative deliveries (Top 10)", color="white")
+        ax_curves.set_xlabel("Tick", color="white")
+        ax_curves.set_ylabel("Oggetti consegnati", color="white")
+        ax_curves.set_ylim(bottom=0)
+        if curves_to_show <= 20:
+            ax_curves.legend(fontsize=8, facecolor="#1a1a2e", edgecolor="#555", labelcolor="white")
+        fig_curves.tight_layout()
+        buf_curves = io.BytesIO()
+        fig_curves.savefig(buf_curves, format="png", dpi=100, facecolor="#0e1117")
+        buf_curves.seek(0)
+        z.writestr("plot_curves.png", buf_curves.read())
+        plt.close(fig_curves)
+    
+    buf_zip.seek(0)
+    return buf_zip.getvalue()
 
 
 def _render_benchmark_plots(df_rank, df, preset_curves, bench_max_ticks):
@@ -340,6 +449,29 @@ def _render_benchmark_plots(df_rank, df, preset_curves, bench_max_ticks):
         st.caption("Legenda nascosta automaticamente quando le curve mostrate sono piu di 10.")
 
 
+def _render_downloadable_top_presets(df_rank):
+    st.markdown("#### ⬇ Top 10 preset scaricabili")
+    medals = ["🥇", "🥈", "🥉", "4.", "5.", "6.", "7.", "8.", "9.", "10."]
+    for i in range(min(10, len(df_rank))):
+        row = df_rank.iloc[i]
+        # Pulsante a sinistra, info a destra
+        col_btn, col_info = st.columns([1, 30])
+        with col_btn:
+            dl_data = {"name": row["preset_name"], "num_agents": len(row["agent_configs"]), "agents": row["agent_configs"]}
+            st.download_button(
+                label="⬇",
+                data=json.dumps(dl_data, indent=4),
+                file_name=f"{row['preset_name'].replace(' ', '_')}.json",
+                mime="application/json",
+                key=f"dl_top_{i}",
+            )
+        with col_info:
+            st.markdown(
+                f"{medals[i]} **{row['preset_name']}** — {row['team_desc']} — consegnati {row['objects_delivered']}/{row['total_objects']} in **{row['total_ticks']} tick** — energia {row['average_energy']:.1f}"
+            )
+            st.caption(f"Dettaglio: {row['config_str']}")
+
+
 def _render_benchmark_results():
     if "bench_results" not in st.session_state:
         return
@@ -352,16 +484,14 @@ def _render_benchmark_results():
     st.divider()
     st.subheader("📊 Risultati benchmark")
 
-    csv_cols = [
-        "preset_name", "config_str", "team_desc", "avg_vis", "avg_comm", "objects_delivered",
-        "total_objects", "delivery_rate", "total_ticks", "average_energy", "cpu_time",
-    ]
+    # Download completo con ZIP
+    zip_data = _create_benchmark_zip(df, results, seed=0, instance_path="")
     st.download_button(
-        "💾 Scarica tutti i risultati (CSV)",
-        data=df[[c for c in csv_cols if c in df.columns]].to_csv(index=False).encode("utf-8"),
-        file_name="benchmark_results.csv",
-        mime="text/csv",
-        key="dl_all_csv",
+        "💾 Scarica risultati completi (ZIP con dati, grafici e metadata)",
+        data=zip_data,
+        file_name=f"benchmark_results_{time.strftime('%Y%m%d_%H%M%S')}.zip",
+        mime="application/zip",
+        key="dl_all_zip",
     )
 
     df_rank = df.sort_values(by=["total_ticks", "delivery_rate", "average_energy"], ascending=[True, False, True]).reset_index(drop=True)
@@ -375,6 +505,8 @@ def _render_benchmark_results():
         "Tick": df_rank.head(10)["total_ticks"].round(2),
         "Energia media": df_rank.head(10)["average_energy"].round(2),
     }), width="stretch", hide_index=True)
+
+    _render_downloadable_top_presets(df_rank)
 
     st.divider()
     st.markdown("#### 📋 Classifica totale")
@@ -391,7 +523,6 @@ def _render_benchmark_results():
         "CPU (s)": df_all_sorted["cpu_time"],
     }), width="stretch", hide_index=True)
 
-    _render_downloadable_top_presets(df_rank)
     _render_benchmark_plots(df_rank, df, preset_curves, bench_max_ticks)
 
 
