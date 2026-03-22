@@ -23,4 +23,3 @@ A/
 
 Nota bene:
 - Top10_presets è presente solo nei test con 32k simulazioni.
-- curves.json è escluso dal repository (file troppo grande > 100MB) ma disponibile localmente per generare i grafici.
