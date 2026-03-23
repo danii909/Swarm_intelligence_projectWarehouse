@@ -266,9 +266,11 @@ def _render_simulation_results(summary, elapsed, agent_configs):
         ax_curve.set_ylabel("Oggetti consegnati", color="white")
         ax_curve.set_ylim(bottom=0)
         ax_curve.grid(axis="y", color="#2a2a2a", linewidth=0.7, alpha=0.6)
-        # Mostra un segnalino sull'asse x ogni 50 tick
+
         try:
-            ax_curve.set_xticks(np.arange(0, max_ticks + 1, 50))
+            ticks = np.concatenate((np.array([1], dtype=int), np.arange(50, max_ticks + 1, 50, dtype=int)))
+            ticks = ticks[ticks <= max_ticks]
+            ax_curve.set_xticks(ticks)
         except Exception:
             pass
         fig_curve.tight_layout()
