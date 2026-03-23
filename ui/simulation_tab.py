@@ -181,7 +181,7 @@ def _run_simulation(instance_path, seed, agent_configs, max_ticks, update_every,
     
     try:
         status_msg = st.empty()
-        status_msg.info("⏳ Esecuzione simulazione (questa operazione non è interattiva)...")
+        status_msg.info("⏳ Esecuzione simulazione... (non interattivo)")
         
         for tick, cur_agents, cur_env in sim.step_gen():
             if tick % update_every == 0 or cur_env.all_delivered:
@@ -193,34 +193,18 @@ def _run_simulation(instance_path, seed, agent_configs, max_ticks, update_every,
                     agent_icon_img=agent_icon_img,
                     package_icon_img=package_icon_img,
                 )
+                # Copia i dati per preservarli
+                import copy
                 frames_data.append({
                     "tick": tick,
                     "png": png,
-                    "agents": cur_agents,
-                    "env": cur_env,
+                    "delivered": cur_env.delivered,
+                    "total_objects": cur_env.total_objects,
+                    "agents_copy": copy.deepcopy(list(cur_agents)),  # Copia profonda degli agenti
                 })
         
-        status_msg.success("✓ Simulazione completata! Riproduzione...")
+        status_msg.success("✓ Simulazione completata!")
         
-        # Ora riproduci i frame salvati uno per uno
-        for frame_info in frames_data:
-            tick = frame_info["tick"]
-            png = frame_info["png"]
-            cur_agents = frame_info["agents"]
-            cur_env = frame_info["env"]
-            
-            frame_ph.image(png, width="stretch")
-            prog_ph.progress(min(tick / max_ticks, 1.0), text=f"Tick {tick}/{max_ticks}")
-            tick_ph.markdown(render_status_card_html("Tick", str(tick), "#4C72B0"), unsafe_allow_html=True)
-            stats_ph.markdown(
-                render_status_card_html("Consegnati", f"{cur_env.delivered} / {cur_env.total_objects}", "#55A868"),
-                unsafe_allow_html=True,
-            )
-            battery_ph.markdown(render_battery_html(cur_agents, agent_configs), unsafe_allow_html=True)
-            if frame_delay > 0:
-                time.sleep(frame_delay)
-        
-        status_msg.empty()
     except Exception as exc:
         st.error(f"Errore durante la simulazione: {exc}")
         st.exception(exc)
@@ -232,6 +216,11 @@ def _run_simulation(instance_path, seed, agent_configs, max_ticks, update_every,
     st.session_state.setdefault("history_runs", []).append({"summary": summary, "configs": list(agent_configs), "delivery_curve": delivery_curve})
     st.session_state["last_delivery_curve"] = delivery_curve
     st.session_state["last_max_ticks"] = max_ticks
+    
+    # Salva i frame nel session_state per permettere la riproduzione interattiva
+    st.session_state["simulation_frames"] = frames_data
+    st.session_state["simulation_agent_configs"] = agent_configs
+    
     return elapsed, summary
 
 
@@ -334,6 +323,71 @@ def _render_history_runs():
         st.rerun()
 
 
+def _render_simulation_playback(frame_ph, tick_ph, stats_ph, prog_ph, battery_ph, frame_delay):
+    """Mostra i frame salvati con uno slider interattivo per la riproduzione."""
+    frames_data = st.session_state.get("simulation_frames", [])
+    agent_configs = st.session_state.get("simulation_agent_configs", [])
+    
+    if not frames_data:
+        return
+    
+    st.markdown("---")
+    st.subheader("🎬 Riproduzione simulazione")
+    
+    # Slider per controllare il frame corrente
+    frame_idx = st.slider(
+        "Seleziona frame",
+        min_value=0,
+        max_value=len(frames_data) - 1,
+        value=0,
+        key="frame_slider",
+    )
+    
+    # Pulsanti di controllo riproduzione
+    col1, col2, col3, col4 = st.columns([1, 1, 1, 2])
+    
+    with col1:
+        if st.button("⏮ Inizio"):
+            st.session_state["frame_slider"] = 0
+            st.rerun()
+    
+    with col2:
+        if st.button("⏯ Play"):
+            for idx in range(frame_idx, len(frames_data)):
+                st.session_state["frame_slider"] = idx
+                st.rerun()
+                if frame_delay > 0:
+                    time.sleep(frame_delay)
+    
+    with col3:
+        if st.button("⏹ Fine"):
+            st.session_state["frame_slider"] = len(frames_data) - 1
+            st.rerun()
+    
+    with col4:
+        speed_mult = st.selectbox(
+            "Velocità riproduzione",
+            options=[0.5, 1.0, 1.5, 2.0],
+            index=1,
+            key="playback_speed",
+        )
+    
+    # Mostra il frame selezionato
+    frame_info = frames_data[frame_idx]
+    tick = frame_info["tick"]
+    png = frame_info["png"]
+    agents = frame_info["agents_copy"]
+    
+    frame_ph.image(png, width="stretch")
+    prog_ph.progress(min(tick / 500, 1.0), text=f"Tick {tick}/500")
+    tick_ph.markdown(render_status_card_html("Tick", str(tick), "#4C72B0"), unsafe_allow_html=True)
+    stats_ph.markdown(
+        render_status_card_html("Consegnati", f"{frame_info['delivered']} / {frame_info['total_objects']}", "#55A868"),
+        unsafe_allow_html=True,
+    )
+    battery_ph.markdown(render_battery_html(agents, agent_configs), unsafe_allow_html=True)
+
+
 def render_simulation_tab(instance_path: str, seed: int):
     st.markdown(SIMULATION_SLIDER_CSS, unsafe_allow_html=True)
     col_cfg, col_sim, col_status = st.columns([2, 4, 2])
@@ -384,5 +438,6 @@ def render_simulation_tab(instance_path: str, seed: int):
             package_icon_upload,
         )
         _render_simulation_results(summary, elapsed, agent_configs)
+        _render_simulation_playback(frame_ph, tick_ph, stats_ph, prog_ph, battery_ph, frame_delay)
 
     _render_history_runs()
