@@ -6,6 +6,37 @@ A real-time multi-agent simulation framework where autonomous agents explore war
 
 ---
 
+## 🚀 Quick Start — Run with Streamlit
+
+### Prerequisites
+- **Python 3.9+**
+- Virtual environment (optional but recommended)
+
+### Setup & Run (3 steps)
+
+```bash
+# 1. Activate your virtual environment (if you have one)
+# Windows PowerShell:
+.\.venv\Scripts\Activate.ps1
+# macOS / Linux:
+source .venv/bin/activate
+
+# 2. Install dependencies
+pip install -r requirements.txt
+
+# 3. Launch the app
+streamlit run app.py
+```
+
+Open your browser at **`http://localhost:8501`** — you'll see the interactive dashboard with:
+- Live grid visualization
+- Agent configuration panel
+- Real-time metrics & battery monitoring
+- Preset save/load
+- Benchmark mode for batch testing
+
+---
+
 ## Features
 
 ### Exploration Strategies (5 Usable + 1 Prototype)
@@ -109,76 +140,6 @@ A real-time multi-agent simulation framework where autonomous agents explore war
 
 ---
 
-## Local Development
-
-### Prerequisites
-
-- **Python 3.9+**
-- **pip** or **uv** (recommended: `uv` for speed)
-- **Streamlit** (installed via `requirements.txt`)
-
-### 1 — Clone and Setup Environment
-
-```bash
-git clone <repo-url>
-cd Swarm_intelligence_projectWarehouse
-python -m venv .venv
-```
-
-**Windows (PowerShell):**
-```powershell
-.\.venv\Scripts\Activate.ps1
-```
-
-**macOS / Linux:**
-```bash
-source .venv/bin/activate
-```
-
-### 2 — Install Dependencies
-
-```bash
-pip install -r requirements.txt
-```
-
-Or using `uv` (faster):
-
-```bash
-uv sync
-```
-
-### 3 — Run the Interactive UI
-
-```bash
-streamlit run app.py
-```
-
-This launches a web-based dashboard at `http://localhost:8501` where you can:
-
-- Configure agents (strategy, vision radius, communication radius)
-- Run single simulations with live visualization
-- Save/load presets
-- Execute benchmarks with pre-generated configurations
-- Download results as CSV
-
-### 4 — Run CLI Benchmarks (Optional)
-
-For headless benchmarking:
-
-```bash
-python benchmark_strategies.py \
-    --runs 10 \
-    --agents 5 \
-    --visibility 2 \
-    --seed 42 \
-    --max-ticks 500 \
-    --save-results results.json
-```
-
-Use `--help` for all available options.
-
----
-
 ## Configuration & Parameters
 
 ### Agent Capabilities
@@ -264,19 +225,6 @@ Run from the **🔬 Benchmark** tab in Streamlit:
    - View delivery curves (cumulative objects/tick)
    - Rank by efficiency (ticks, energy, completion)
 
-### CLI Benchmarking
-
-```bash
-python benchmark_strategies.py \
-    --runs 5 \
-    --agents 5 \
-    --visibility 2 \
-    --seed 42 \
-    --max-ticks 500
-```
-
-Outputs a formatted table with average metrics across runs per strategy.
-
 ---
 
 ## Exploration Strategies
@@ -310,107 +258,9 @@ Enhances random walk with:
 
 ---
 
-## File Format
+## Author
 
-### Warehouse Instance (JSON)
-
-```json
-{
-  "metadata": {
-    "grid_size": 25,
-    "num_warehouses": 4,
-    "num_objects": 10
-  },
-  "grid": [
-    [0, 0, 1, ..., 0],
-    [0, 2, 3, ..., 4],
-    ...
-  ],
-  "warehouses": [
-    {
-      "entrance": [r1, c1],
-      "exit": [r2, c2],
-      "bounds": [[r_min, c_min], [r_max, c_max]]
-    },
-    ...
-  ],
-  "objects": [
-    [r1, c1],
-    [r2, c2],
-    ...
-  ]
-}
-```
-
-### Agent Configuration Preset (JSON)
-
-```json
-{
-  "name": "preset",
-  "num_agents": 5,
-  "agents": [
-    {
-      "agent_id": 0,
-      "strategy_id": 0,
-      "radius": 2,
-      "comm_radius": 2
-    },
-    ...
-  ]
-}
-```
-
-Save/load presets via the UI or manually create custom configurations.
+**Daniele Barabagallo** — [GitHub](https://github.com/danii909)
 
 ---
 
-## Performance Tips
-
-- **Reduce max_ticks** for faster iteration during development
-- **Use fixed seeds** (same seed across runs) to eliminate variance
-- **Lower vision_radius** to constrain agent perception (faster computation)
-- **Limit num_agents** for smaller benchmark spaces
-- **CSV export** enables post-simulation analysis in Excel/Python
-
----
-
-## Troubleshooting
-
-| Issue                         | Solution                                           |
-| ----------------------------- | -------------------------------------------------- |
-| Module import errors          | Ensure `.venv` is activated; `pip install -r requirements.txt` |
-| Streamlit port conflict       | Run `streamlit run app.py --server.port 8502`     |
-| Pygame offscreen rendering    | Ensure X11/display server available; works headless with `DISPLAY=:99` |
-| Large benchmark hangs         | Reduce preset count or lower max_ticks              |
-| Preset download fails         | Check browser permissions; try incognito mode      |
-
----
-
-## Build & Code Quality (Optional)
-
-For all-round polish:
-
-```bash
-# Format with Black
-black .
-
-# Lint with Ruff
-ruff check --fix .
-
-# Run tests (if added)
-pytest
-```
-
----
-
-## License
-
-Course project — developed for Multi-Agent Systems curriculum. See individual files for authorship details.
-
----
-
-## Quick Links
-
-- **Main app**: `app.py`
-- **CLI benchmark**: `benchmark_strategies.py`
-- **Core source**: `src/`

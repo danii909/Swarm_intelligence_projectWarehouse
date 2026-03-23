@@ -1,0 +1,36 @@
+{
+    "name": "preset",
+    "num_agents": 5,
+    "agents": [
+        {
+            "agent_id": 0,
+            "strategy_id": 0,
+            "radius": 2,
+            "comm_radius": 2
+        },
+        {
+            "agent_id": 1,
+            "strategy_id": 1,
+            "radius": 3,
+            "comm_radius": 2
+        },
+        {
+            "agent_id": 2,
+            "strategy_id": 3,
+            "radius": 3,
+            "comm_radius": 2
+        },
+        {
+            "agent_id": 3,
+            "strategy_id": 2,
+            "radius": 2,
+            "comm_radius": 2
+        },
+        {
+            "agent_id": 4,
+            "strategy_id": 4,
+            "radius": 3,
+            "comm_radius": 2
+        }
+    ]
+}

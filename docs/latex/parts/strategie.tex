@@ -1,0 +1,131 @@
+\chapter{Strategie di Esplorazione}
+
+Le cinque strategie implementano l'interfaccia \texttt{ExplorationStrategy}; ognuna definisce
+il metodo \texttt{next\_move} che restituisce la prossima cella verso cui spostarsi.
+Tutte condividono una \textbf{priorit\`a universale}: se l'agente trasporta un oggetto,
+la destinazione \`e il magazzino pi\`u vicino; se conosce un oggetto non reclamato, si dirige
+verso di esso. Solo quando nessuna delle due condizioni \`e attiva la strategia di
+esplorazione vera e propria viene invocata.
+
+\section{Funzioni condivise della classe base}
+
+La classe \texttt{ExplorationStrategy} espone sette metodi ereditati da tutte le strategie.
+
+\paragraph{Priority-Move.}
+Implementa la priorit\`a universale. Se l'agente trasporta un oggetto, lo indirizza
+all'ingresso del magazzino scelto; altrimenti, se conosce oggetti non ancora reclamati,
+lo dirige verso il pi\`u vicino (Manhattan). Solo se nessuna condizione \`e attiva il
+controllo passa alla logica di esplorazione specifica.
+
+\paragraph{Selezione ingresso di consegna.}
+Sceglie dinamicamente l'ingresso di consegna combinando distanza e congestione.
+Il costo per un ingresso $e$ \`e:
+$$C(e) \;=\; d(\text{agent},\,e) \;+\; 4{,}5\cdot Q_{\text{local}}
+         \;+\; 1{,}5\cdot R_{\text{reserved}} \;+\; \varepsilon_{\text{tie}}$$
+dove $Q_{\text{local}}$ \`e il numero di agenti noti entro raggio~2 dall'ingresso,
+$R_{\text{reserved}}$ \`e il numero di prenotazioni attive su quell'ingresso, e
+$\varepsilon_{\text{tie}}$ \`e un tie-break deterministico basato
+sull'ID dell'agente.
+L'ingresso scelto viene \emph{prenotato} con un lock di 8~tick; un cambio
+avviene solo se il nuovo costo \`e almeno il~20\% inferiore a quello corrente,
+riducendo le oscillazioni.
+
+\paragraph{Find-Frontier.}
+Il metodo \texttt{ExplorationStrategy.\_find\_frontiers} individua le frontiere di
+copertura: celle \texttt{EMPTY} gi\`a osservate dall'agente che confinano con almeno
+una cella \texttt{EMPTY} non ancora vista nella mappa locale. Per ogni cella osservata
+si verificano i quattro vicini cardinali; se almeno uno di essi \`e una cella
+percorribile non presente in \texttt{seen\_cells}, la cella viene marcata come
+frontiera. Il risultato viene memorizzato in cache per \texttt{agent\_id} e ricalcolato
+solo quando aumenta il numero di celle in \texttt{seen\_cells}, riducendo il costo
+computazionale nei cicli ripetuti di esplorazione.
+
+\textit{Nota implementativa:} questo metodo era inizialmente stato sviluppato per testare
+strategie con visione esclusivamente locale. Tuttavia, per mantenere omogeneita tra
+tutti gli agenti e facilitare il confronto equo delle strategie, e stata successivamente
+scartata a favore di un approccio unificato dove tutte le strategie accedono alla mappa
+globale. Il metodo rimane nel codice come utility riutilizzabile per futuri sviluppi.
+
+\paragraph{Coverage targets.}
+Fornisce i target di esplorazione utilizzando la conoscenza globale della mappa
+(accedendo direttamente a \texttt{env.grid.empty\_cells()}), con tre livelli di priorit\`a:
+\begin{enumerate}
+  \item Celle \texttt{EMPTY} mai osservate localmente (\textit{unexplored});
+  \item Celle \texttt{EMPTY} osservate ma non visitate da almeno $\max(8,\,N/2)$ tick
+        (\textit{stale});
+  \item Tutte le celle \texttt{EMPTY} (\textit{patrolling}).
+\end{enumerate}
+Il passaggio al livello successivo avviene solo quando il precedente \`e vuoto. Questa
+scelta di design consente alle strategie di operare con consapevolezza della struttura
+complessiva del magazzino, migliorando l'efficienza esplorativa pur mantenendo autonomia
+locale nelle decisioni di movimento.
+
+\paragraph{Guadagno informativo (\textit{information gain}).}
+Euristica condivisa da pi\'u strategie (Smart Random Walk e Greedy).
+Per una cella candidata~$t$ il guadagno informativo \`e il numero di celle non ancora viste
+che l'agente osserverebbe se si trovasse in~$t$:
+$$\text{info\_gain}(t) = \bigl|\,\{(r,c) : |r - t_r| + |c - t_c| \le v_r
+      \;\wedge\; (r,c) \notin \text{seen\_cells}\}\,\bigr|$$
+dove $v_r$ \`e il raggio di visibilit\`a dell'agente. Valori alti indicano zone dense
+di celle inesplorate e guidano l'agente verso le aree pi\`u informative.
+
+% ------------------------------------------------------------------
+\section{Smart Random Walk}
+
+Passeggiata casuale intelligente. Per ogni vicino percorribile viene calcolato un
+punteggio che bilancia:
+
+\begin{itemize}
+  \item \textbf{Guadagno informativo} --- celle ignote nell'intorno del candidato,
+        pesato da $w_{\text{info}} = 1{,}2$;
+  \item \textbf{Stale bonus} --- tick dall'ultima visita alla cella, pesato da
+        $w_{\text{stale}} = 0{,}8$;
+  \item \textbf{Separazione} --- distanza media dagli agenti noti, pesata da
+        $w_{\text{sep}} = 0{,}5$;
+  \item \textbf{Penalit\`a rivisitazione} --- penalit\`a se la cella \`e stata visitata di recente,
+        pesata da $w_{\text{revisit}} = 1{,}0$;
+  \item \textbf{Rumore casuale} --- componente $\mathcal{U}(0,\, 0{,}3)$ per evitare pattern deterministici.
+\end{itemize}
+
+La mossa viene selezionata con probabilit\`a proporzionale al punteggio (\textit{softmax}),
+mantenendo una componente stocastica che impedisce cicli.
+
+\section{Frontier}
+
+Esplorazione frontier-based classica. L'agente identifica le frontiere: celle percorribili
+adiacenti ad almeno una cella \texttt{UNKNOWN} nella propria mappa locale. Tra tutte le
+frontiere, seleziona quella pi\`u vicina per distanza di Manhattan e vi si dirige tramite A*.
+Quando non esistono pi\`u frontiere (mappa completamente esplorata), l'agente esegue un
+random walk tra i vicini liberi.
+
+\section{Greedy}
+
+Seleziona il target di esplorazione che minimizza un costo composito:
+
+$$\text{cost}(t) = d(\text{agent}, t) + d(t, \text{wh}_{\text{nearest}}) - \text{info\_gain}(t)$$
+
+dove $d$ \`e la distanza di Manhattan, $\text{wh}_{\text{nearest}}$ \`e il magazzino noto
+pi\`u vicino e $\text{info\_gain}(t)$ conta le celle non ancora osservate entro il raggio
+di visibilit\`a $v_r$ del target~$t$ (cfr.\ formula nella Sezione~3.1).
+L'effetto \`e un bias verso zone inesplorate
+e vicine ai magazzini. In assenza di target utili, l'agente si avvicina al peer pi\`u
+vicino per favorire lo scambio di mappa.
+
+\section{Sector}
+
+La griglia viene suddivisa in bande orizzontali, una per agente (in base a
+$\texttt{agent\_id} \bmod N$). Ogni agente copre sistematicamente la propria banda con
+un pattern a serpentina, poi si sposta sulle bande adiacenti non coperte. Questo garantisce
+copertura distribuita e uniforme senza bisogno di comunicazione esplicita.
+
+\section{Repulsion}
+
+Tra tutti i coverage target disponibili, seleziona quello che massimizza il punteggio:
+
+$$\text{score}(t) = \frac{1}{|\mathcal{A}|}\sum_{a \in \mathcal{A}} d(t, a) - d(\text{agent}, t)$$
+
+dove $\mathcal{A}$ \`e l'insieme delle posizioni degli agenti noti. La strategia massimizza
+la distanza media dagli altri agenti (repulsione) e minimizza il costo di spostamento,
+producendo una dispersione uniforme dello sciame sulle zone inesplorate.
+
+

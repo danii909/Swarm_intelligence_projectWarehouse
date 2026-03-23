@@ -1,9 +1,44 @@
+# Python
 __pycache__/
 *.py[cod]
-.venv
+*.egg-info/
+dist/
+build/
 .pytest_cache/
-deposito-txt/
+
+# Virtual Environment
+.venv
+venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Streamlit
+.streamlit/secrets.toml
+
+# Benchmark & Testing Data
 bench/
-Relazione/
-# Large benchmark result files - excluded due to 100MB GitHub limit
+Benchmark_results/
 **/curves.json
+tools/
+
+# LaTeX compiled files (keep .tex sources)
+*.aux
+*.fdb_latexmk
+*.fls
+*.toc
+*.log
+
+# Temporary & Backup Files
+*_Copia.py
+*_copy.py
+deposito-txt/

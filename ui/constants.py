@@ -11,7 +11,7 @@ STRATEGIES = {
     5: ("Ant-Colony", "Coverage con feromone evaporativo condiviso"),
 }
 
-DEFAULT_RADIUS = {0: 2, 1: 3, 2: 2, 3: 2, 4: 1, 5: 2}
+DEFAULT_RADIUS = {0: 2, 1: 3, 2: 2, 3: 2, 4: 3, 5: 2}
 
 STRATEGY_COLORS = {
     "Frontier": "#4C72B0",

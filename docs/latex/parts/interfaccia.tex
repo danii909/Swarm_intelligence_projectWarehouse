@@ -1,0 +1,79 @@
+\chapter{Interfaccia Utente}
+
+L'intero sistema \`e controllabile tramite una dashboard web realizzata con
+\textbf{Streamlit}, avviabile con il comando \texttt{streamlit run app.py}.
+L'interfaccia \`e organizzata in una barra laterale di configurazione globale e
+due tab principali: \textit{Simulazione} e \textit{Benchmark}.
+
+\section{Barra laterale}
+
+La sidebar consente di selezionare il \textbf{file istanza} (mappa JSON) e il
+\textbf{seed} di riproducibilit\`a (valore $-1$ per seed casuale).
+Questi parametri sono condivisi da entrambe le modalit\`a.
+
+\section{Tab Simulazione}
+
+Il pannello di simulazione \`e suddiviso in tre colonne:
+
+\begin{itemize}
+  \item \textbf{Configurazione} (sinistra) --- permette di impostare il numero di agenti
+        (1--10), il limite di tick (100--750) e il delay tra frame.
+        Per ogni agente si sceglie la strategia di esplorazione, il raggio di visione
+        ($v_r \in \{1,2,3\}$) e il raggio di comunicazione ($c_r \in \{1,2\}$).
+        \`E possibile caricare un preset JSON salvato in precedenza o
+        personalizzare le icone degli agenti e dei pacchi.
+  \item \textbf{Visualizzazione} (centro) --- mostra un rendering in tempo reale della
+        griglia, generato frame per frame tramite Pygame in modalit\`a off-screen.
+        Ogni cella viene colorata in base al tipo (muro, corridoio, magazzino, ingresso, uscita);
+        gli agenti sono cerchi colorati con etichetta ID; i pacchi e i magazzini hanno icone
+        dedicate.
+        Una barra di avanzamento indica il tick corrente e lo stato della simulazione.
+  \item \textbf{Stato} (destra) --- riporta in tempo reale il tick attuale, il conteggio
+        degli oggetti consegnati e la batteria residua di ogni agente.
+\end{itemize}
+
+Al termine della simulazione vengono mostrati i risultati finali: oggetti consegnati,
+tasso di completamento, tick totali, energia media e tempo CPU.
+Una tabella riassuntiva per agente elenca strategia, raggio, passi effettuati e
+batteria finale. Un grafico mostra la curva cumulativa delle consegne nel tempo.
+
+La simulazione pu\`o essere ripetuta pi\`u volte senza ricaricare la pagina;
+uno \textbf{storico} delle run precedenti consente di confrontare le configurazioni
+testate nella stessa sessione.
+Al termine \`e possibile scaricare il preset corrente in formato JSON per riutilizzarlo.
+
+\section{Tab Benchmark}
+
+La modalit\`a benchmark consente di eseguire automaticamente un numero arbitrario di
+simulazioni con configurazioni diverse, per esplorare lo spazio dei parametri.
+
+La configurazione avviene tramite:
+\begin{itemize}
+  \item \textbf{Strategie}: selezione multipla tra le strategie disponibili oppure
+        strategia singola fissa;
+  \item \textbf{Raggi}: range di visione e comunicazione, ciascuno in modalit\`a
+        casuale (intervallo) o fissa (valore singolo);
+  \item \textbf{Numero di preset}: il sistema calcola e mostra lo spazio di ricerca
+        totale (combinazioni per agente elevate al numero di agenti) e permette di
+        scegliere quanti preset testare.
+\end{itemize}
+
+I preset vengono generati senza duplicati (campionamento casuale oppure enumerazione
+esaustiva se il numero richiesto copre l'intero spazio).
+Durante l'esecuzione una barra di avanzamento mostra il preset corrente e la percentuale
+completata.
+
+Al termine vengono prodotti:
+\begin{itemize}
+  \item Una \textbf{tabella ordinabile} con tutti i risultati (tasso di completamento,
+        tick, energia, configurazione, strategia dominante);
+  \item Un \textbf{grafico a barre} dei tick di completamento, colorato per strategia
+        dominante, con linea della media;
+  \item Un \textbf{grafico a barre} degli oggetti consegnati per preset;
+  \item Un file \textbf{ZIP esportabile} contenente: \texttt{summary.csv},
+        \texttt{results.json} (configurazioni dettagliate),
+        \texttt{curves.json} (curve di consegna), \texttt{metadata.json}
+        (parametri della sessione) e le immagini dei grafici in formato PNG.
+\end{itemize}
+
+Questo workflow ha permesso di generare i dati presentati nel Capitolo~\ref{ch:risultati}.

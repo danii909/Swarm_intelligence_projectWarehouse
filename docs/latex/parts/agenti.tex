@@ -1,0 +1,78 @@
+\chapter{Agenti}
+
+Ogni agente \`e un'entit\`a autonoma caratterizzata da posizione, batteria, mappa locale,
+insieme di oggetti noti, stato interno e strategia di esplorazione. Tutti gli agenti
+condividono la stessa classe base; il comportamento specifico \`e determinato dalla
+strategia iniettata alla creazione.
+
+\section{Attributi}
+
+\begin{itemize}
+  \item \textbf{Batteria} --- 500 unit\`a iniziali, decrementata di 1 per ogni spostamento.
+        A esaurimento l'agente entra nello stato \texttt{DEPLETED} e si ferma.
+  \item \textbf{Raggio di visione} $v_r$ --- configurabile tra 1 e 3 celle (distanza di Manhattan).
+  \item \textbf{Raggio di comunicazione} $c_r$ --- configurabile tra 1 e 3 celle.
+  \item \textbf{Mappa locale} --- dizionario $(r,c) \to \texttt{CellType}$ che accumula
+        le osservazioni dirette e le informazioni ricevute dagli altri agenti.
+  \item \textbf{Oggetti noti} --- insieme delle posizioni di oggetti rilevati ma non ancora raccolti,
+        aggiornato dalla visione diretta e dalla comunicazione.
+  \item \textbf{Posizioni agenti noti} --- per ogni agente conosciuto si conserva la posizione
+        e il tick di osservazione pi\`u recente.
+\end{itemize}
+
+\section{Percezione (Sense)}
+
+Ad ogni tick, l'agente calcola le celle visibili entro il raggio $v_r$ tramite
+\textit{ray casting} basato sull'algoritmo di Bresenham: una cella \`e visibile solo se
+il segmento rettilineo che la collega all'agente non attraversa muri. Le celle visibili
+aggiornano la mappa locale e il set \texttt{seen\_cells}; gli oggetti nel campo visivo
+vengono aggiunti a \texttt{known\_objects}. Se una cella precedentemente contenente un
+oggetto risulta vuota, l'oggetto viene rimosso dai noti (pulizia stale).
+
+\section{Macchina a stati}
+
+Il ciclo decisionale \`e governato dai seguenti stati:
+
+\begin{enumerate}
+  \item \textbf{EXPLORING} --- nessun oggetto noto; la strategia di esplorazione guida il movimento.
+  \item \textbf{MOVING\_TO\_OBJECT} --- un oggetto \`e stato individuato; l'agente si dirige
+        verso di esso tramite A*.
+  \item \textbf{CARRYING} --- l'agente ha un oggetto raccolto e si dirige verso il magazzino pi\`u vicino noto.
+  \item \textbf{DELIVERING} --- l'agente \`e entrato nel magazzino e raggiunge la cella interna
+        di deposito.
+  \item \textbf{EXITING\_WAREHOUSE} --- dopo la consegna, l'agente esce dalla porta di uscita.
+  \item \textbf{DEPLETED} --- batteria esaurita, agente fermo.
+\end{enumerate}
+
+\section{Pathfinding}
+
+Il pathfinding utilizza A* con euristica Manhattan sulla griglia. Le celle occupate
+da altri agenti vengono passate come set di celle bloccate per evitare collisioni. La
+variante \texttt{allow\_warehouse} abilita il transito attraverso le celle interne del
+magazzino durante le fasi di consegna e uscita.
+
+\section{Consegna}
+
+La sequenza di consegna avviene in tre fasi:
+\begin{enumerate}
+  \item L'agente raggiunge la cella \texttt{ENTRANCE} del magazzino scelto;
+  \item Attraversa l'interno e deposita l'oggetto su una cella \texttt{WAREHOUSE};
+  \item Esce dalla cella \texttt{EXIT} e torna in stato \texttt{EXPLORING}.
+\end{enumerate}
+
+La selezione dell'ingresso di consegna utilizza un costo dinamico che combina distanza e
+congestione, con un meccanismo di prenotazione soft per evitare oscillazioni
+(descritto nella Sezione dedicata alla classe base delle strategie).
+
+\subsection{Strategie di ricarica}
+La batteria non viene mai ricaricata: ogni agente dispone di 500 unit\`a totali,
+che devono bastare per l'intera simulazione. La motivazione per cui non sono state 
+introdotte strategie di ricarica consiste nel fatto che siano ritenute non necessarie
+al raggiungimento dell'obiettivo sperimentale: nelle istanze testate gli agenti
+esaurivano l'energia solo in casi estremamente rari. Introdurre routine di
+ricarica avrebbe comportato costi temporali (tick persi per la ricarica) 
+e avrebbe potuto peggiorare l'efficienza
+complessiva, rendendo inoltre pi\`u difficili confronti diretti tra strategie.
+Per questi motivi si \'e preferito mantenere un budget fisso di passi, ponendo
+l'accento sull'efficienza di movimento e sulla qualit\`a delle strategie di
+esplorazione.

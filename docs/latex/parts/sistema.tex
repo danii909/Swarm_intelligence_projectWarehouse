@@ -1,0 +1,121 @@
+\chapter{Ambiente e Simulazione}
+
+\textsc{E.L.B.E.R.R.}\ (\textit{Efficient Logistics by Exploration with Robotic Retrieval}) \`e una
+simulazione multi-agente di recupero e consegna oggetti in un magazzino a pianta variabile.
+Cinque agenti autonomi operano in parallelo su una griglia 2D con visione e comunicazione
+locali, senza alcun coordinamento centralizzato.
+
+\section{Griglia}
+
+L'ambiente \`e rappresentato da una griglia quadrata $N \times N$ le cui celle appartengono a
+uno dei seguenti tipi:
+
+\begin{itemize}
+  \item \texttt{EMPTY} (0) --- corridoio libero, percorribile dagli agenti;
+  \item \texttt{WALL} (1) --- ostacolo o scaffale, non percorribile;
+  \item \texttt{WAREHOUSE} (2) --- cella interna al magazzino (zona di deposito/ricarica);
+  \item \texttt{ENTRANCE} (3) --- porta d'ingresso del magazzino;
+  \item \texttt{EXIT} (4) --- porta d'uscita del magazzino.
+\end{itemize}
+
+Gli agenti possono attraversare solo celle \texttt{EMPTY}, \texttt{ENTRANCE} e \texttt{EXIT};
+le porte dei magazzini sono state gestite in modo che siano percorribili esclusivamente come destinazione finale di un percorso, mai come
+transito intermedio. 
+Questo perchè è stato osservato che in alcuni casi, gli agenti consideravano erroneamente le porte come scorciatoie dovute alla presenza di troppi agenti nelle vicinanze, causando ulteriore congestione e collisioni evitabili. 
+\section{Magazzini}
+
+Ogni magazzino \`e una zona rettangolare con un ingresso e un'uscita separati. L'istanza viene
+caricata da un file JSON che specifica la pianta, le posizioni dei magazzini e la
+distribuzione casuale degli oggetti. Gli agenti consegnano gli oggetti entrando
+dall'ingresso, depositandoli su una cella interna e uscendo dall'uscita.
+
+\section{Ciclo di simulazione}
+
+Ad ogni tick il simulatore esegue, in ordine:
+
+\begin{enumerate}
+  \item \textbf{Sense} --- ogni agente aggiorna la propria mappa locale tramite ray casting
+        nel raggio di visione $v_r$;
+  \item \textbf{Communicate} --- gli agenti entro il raggio di comunicazione reciproco
+        $c_r$ si scambiano mappe locali, oggetti noti e posizioni degli agenti conosciuti
+        (merge bidirezionale);
+  \item \textbf{Decide} --- ogni agente sceglie la prossima mossa in base alla propria
+        strategia di esplorazione;
+  \item \textbf{Act} --- le mosse vengono applicate con gestione delle collisioni;
+  \item \textbf{Pickup/Deliver} --- gli agenti raccolgono oggetti e li consegnano;
+  \item \textbf{Metriche} --- aggiornamento dei contatori.
+\end{enumerate}
+
+La simulazione termina quando tutti gli oggetti sono stati consegnati oppure si raggiunge
+il limite di 500-750 tick.
+
+\section{Gestione delle collisioni}
+
+La prevenzione delle collisioni è implementata con un approccio \emph{ibrido distribuito}:
+ogni agente tenta attivamente di evitarle basandosi su informazioni locali, mentre il
+simulatore funge da arbitro imparziale per i conflitti inevitabili.
+
+\subsection*{Autogestione locale}
+
+Ad ogni tick, nel costruire la propria destinazione, ogni agente filtra le celle
+attraverso la funzione di pathfinding utilizzando l'insieme delle posizioni occupate
+(\texttt{known\_agents}) entro una finestra di validit\`a temporale di 5~tick.
+Agenti che comunicano direttamente si scambiano inoltre posizioni note, propagando
+informazioni sullo stato del sistema via \textit{gossip protocol}.
+
+Questo meccanismo permette ai singoli agenti di \emph{evitare proattivamente} collisioni
+di cui sono a conoscenza, manifestando una forma di coordinamento localizzato e
+biologicamente realistica.
+
+\subsection*{Arbitrato centrale}
+
+Tuttavia, in un sistema decentralizzato con comunicazione locale limitata, non è possibile
+garantire che ogni agente conosca la posizione in tempo reale di tutti gli altri. Conflitti
+emergono inevitabilmente quando:
+
+\begin{itemize}
+  \item Due agenti che non si vedono e non hanno comunicato tentano la stessa destinazione;
+  \item L'informazione su un agente è scaduta (oltre 5~tick).
+\end{itemize}
+
+In questi casi, il simulatore applica una risoluzione deterministica \emph{prima di eseguire
+alcun movimento}, garantendo che non si producano mai stati incoerenti:
+
+\begin{enumerate}
+  \item Un agente che non si muove (\texttt{dest\,=\,None}) \emph{blocca} la propria cella:
+        nessun altro può entrarvi.
+  \item Se due o più agenti richiedono la stessa cella, vince chi trasporta un oggetto
+        (priorità funzionale); a parità di stato, vince l'ID minore (arbitrio deterministico
+        per garantire no-deadlock).
+        Gli altri restano fermi e potranno riprovare al prossimo tick.
+  \item Le porte (\texttt{ENTRANCE} e \texttt{EXIT}) sono automaticamente aggiunte
+        all'insieme protected durante la pianificazione, evitando che gli agenti le attraversino
+        innecessariamente.
+\end{enumerate}
+
+\section{Prenotazione degli ingressi ai magazzini}
+
+Quando un agente trasporta un oggetto, deve scegliere a quale ingresso consegnarlo.
+La selezione non \`e statica: ad ogni tick viene rivalutata tramite un costo dinamico
+(descritto nel Capitolo~3) che combina distanza, congestione locale e prenotazioni note.
+
+Per evitare oscillazioni, la scelta viene vincolata con un \emph{lock di 8~tick}:
+l'agente cambia destinazione solo se trova un ingresso con costo
+almeno il 20\% inferiore a quello attuale.
+La prenotazione viene condivisa via gossip durante la comunicazione, cos\`\i\
+gli altri agenti possono tenerne conto nel calcolo della congestione.
+
+\section{Comunicazione}
+
+Due agenti comunicano se la distanza di Manhattan tra le loro posizioni \`e $\leq \min(c_{r,a}, c_{r,b})$.
+Lo scambio \`e bidirezionale e include:
+
+\begin{itemize}
+  \item Mappa locale (merge delle celle esplorate);
+  \item Insieme degli oggetti noti non ancora raccolti;
+  \item Posizioni note degli altri agenti (si conserva la pi\`u recente);
+  \item Prenotazioni di consegna ai magazzini (anti-congestione).
+\end{itemize}
+
+Non esiste un canale broadcast globale: la conoscenza si propaga solo per contatto diretto,
+creando un effetto di \textit{gossip protocol} distribuito.
