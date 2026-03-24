@@ -4,7 +4,8 @@
 
 A real-time multi-agent simulation framework where autonomous agents explore warehouse environments, discover objects, and optimize retrieval through swarm intelligence principles. Built with Python (Streamlit) backend for interactive visualization and benchmarking.
 
-Repository: [SwarmLab](https://github.com/danii909/SwarmLab) 
+Repository: [SwarmLab](https://github.com/danii909/SwarmLab)
+
 Live demo: [swarm-lab.streamlit.app](https://swarm-lab.streamlit.app)
 
 ---
