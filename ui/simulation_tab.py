@@ -216,7 +216,7 @@ def _run_simulation(instance_path, seed, agent_configs, max_ticks, update_every,
                 plt.close(fig) 
                 
                 # AGGIORNAMENTO ISTANTANEO: Inviamo i byte dell'immagine al browser
-                frame_ph.image(buf.getvalue(), use_container_width=True)
+                frame_ph.image(buf.getvalue(), width='stretch')
                 
                 # Aggiorna anche la colonna status a destra (che mancava per Matplotlib)
                 prog_ph.progress(min(tick / max_ticks, 1.0), text=f"Tick {tick}/{max_ticks}")

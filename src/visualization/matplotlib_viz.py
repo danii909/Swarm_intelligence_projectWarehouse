@@ -62,6 +62,8 @@ AGENT_PALETTE = [
     "#073B4C",  # blu navy
 ]
 
+DEFERRED_PICKUP_MSG = "Ora torno a prenderlo"
+
 
 # ---------------------------------------------------------------------------
 # Visualizzatore matplotlib
@@ -106,6 +108,7 @@ class MatplotlibVisualizer(BaseVisualizer):
         self._agent_circles: list = []
         self._agent_labels: list = []
         self._agent_carry_dots: list = []
+        self._agent_messages: list = []
         self._obj_scatter = None
         self._comm_lines: list = []
         self._comm_rects: list = []
@@ -208,10 +211,29 @@ class MatplotlibVisualizer(BaseVisualizer):
                 (agent.col, agent.row), 0.14,
                 color="white", zorder=10, visible=False,
             )
+            msg = ax.text(
+                agent.col,
+                agent.row - 0.72,
+                DEFERRED_PICKUP_MSG,
+                ha="center",
+                va="bottom",
+                fontsize=6.5,
+                color="#f5f5f5",
+                zorder=11,
+                visible=False,
+                bbox=dict(
+                    boxstyle="round,pad=0.24",
+                    facecolor="#1c2230",
+                    edgecolor="#cfd8dc",
+                    linewidth=0.8,
+                    alpha=0.92,
+                ),
+            )
             ax.add_patch(carry_dot)
             self._agent_circles.append(circle)
             self._agent_labels.append(lbl)
             self._agent_carry_dots.append(carry_dot)
+            self._agent_messages.append(msg)
 
         # Cerchi visione (inizialmente nascosti)
         if self.show_vision:
@@ -346,6 +368,7 @@ class MatplotlibVisualizer(BaseVisualizer):
             circle = self._agent_circles[i]
             lbl = self._agent_labels[i]
             carry_dot = self._agent_carry_dots[i]
+            msg = self._agent_messages[i]
 
             if agent.is_active:
                 circle.set_center((agent.col, agent.row))
@@ -354,10 +377,14 @@ class MatplotlibVisualizer(BaseVisualizer):
                 lbl.set_visible(True)
                 carry_dot.set_center((agent.col, agent.row))
                 carry_dot.set_visible(agent.carrying_object)
+                msg.set_position((agent.col, agent.row - 0.72))
+                msg.set_visible(agent.has_deferred_pickup_message)
             else:
                 # Agente esaurito: mostra in grigio
                 circle.set_facecolor("#555")
                 circle.set_center((agent.col, agent.row))
+                msg.set_position((agent.col, agent.row - 0.72))
+                msg.set_visible(agent.has_deferred_pickup_message)
 
             if self.show_vision and i < len(self._vision_circles):
                 vc = self._vision_circles[i]

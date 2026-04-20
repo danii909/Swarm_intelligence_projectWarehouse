@@ -20,6 +20,7 @@ from ui.helpers import agent_label_rgb
 
 _PYGAME = None
 _PYGAME_FONT = None
+DEFERRED_PICKUP_MSG = "Ora torno a prenderlo"
 
 
 def get_pygame():
@@ -114,6 +115,31 @@ def draw_aa_circle_pygame(screen, cx: int, cy: int, radius: int, color, border_c
         pygame.draw.circle(screen, color, (cx, cy), radius)
         if border_color is not None and border_width > 0:
             pygame.draw.circle(screen, border_color, (cx, cy), radius, border_width)
+
+
+def draw_agent_message_pygame(screen, cx: int, cy: int, text: str, grid_px: int) -> None:
+    """Disegna un fumetto sopra l'agente che si muove insieme alla sua icona."""
+    pygame = get_pygame()
+    font = _PYGAME_FONT
+    if font is None:
+        return
+
+    margin = 6
+    txt = font.render(text, True, (245, 245, 245))
+    bubble_w = txt.get_width() + margin * 2
+    bubble_h = txt.get_height() + margin * 2
+
+    x = cx - bubble_w // 2
+    y = cy - 26 - bubble_h
+    max_x = max(2, grid_px - bubble_w - 2)
+    x = max(2, min(x, max_x))
+    y = max(2, y)
+
+    bubble = pygame.Surface((bubble_w, bubble_h), pygame.SRCALPHA)
+    pygame.draw.rect(bubble, (20, 24, 36, 220), pygame.Rect(0, 0, bubble_w, bubble_h), border_radius=8)
+    pygame.draw.rect(bubble, (210, 210, 210, 230), pygame.Rect(0, 0, bubble_w, bubble_h), 1, border_radius=8)
+    bubble.blit(txt, (margin, margin))
+    screen.blit(bubble, (x, y))
 
 
 def render_frame(tick: int, agents, env, show_fog: bool = True, agent_icon_img=None, package_icon_img=None) -> np.ndarray:
@@ -260,6 +286,9 @@ def render_frame(tick: int, agents, env, show_fog: bool = True, agent_icon_img=N
         if agent_icon_scaled is None:
             label = _PYGAME_FONT.render(str(i + 1), True, label_color)
             screen.blit(label, (cx - label.get_width() // 2, cy - label.get_height() // 2))
+
+        if agent.has_deferred_pickup_message:
+            draw_agent_message_pygame(screen, cx, cy, DEFERRED_PICKUP_MSG, size * px)
 
     return np.transpose(pygame.surfarray.array3d(screen), (1, 0, 2))
 
@@ -433,6 +462,25 @@ def render_matplotlib_frame(tick: int, agents, env, show_fog: bool = True) -> "p
             pulse = 1 + 0.3 * abs(np.sin(tick * 0.35))
             ax.scatter(agent.col, agent.row, c="gold", marker="o", s=50 * pulse, 
                       facecolors="none", edgecolors="gold", linewidths=1, zorder=10)
+
+        if agent.has_deferred_pickup_message:
+            ax.text(
+                agent.col,
+                agent.row - 0.72,
+                DEFERRED_PICKUP_MSG,
+                ha="center",
+                va="bottom",
+                fontsize=8.5,
+                color="#f5f5f5",
+                zorder=11,
+                bbox=dict(
+                    boxstyle="round,pad=0.36",
+                    facecolor="#1c2230",
+                    edgecolor="#cfd8dc",
+                    linewidth=0.8,
+                    alpha=0.92,
+                ),
+            )
     
     ax.set_xlim(-0.5, size - 0.5)
     ax.set_ylim(size - 0.5, -0.5)

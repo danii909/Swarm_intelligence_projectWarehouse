@@ -14,6 +14,7 @@ Ogni agente ha:
 from __future__ import annotations
 
 from enum import Enum, auto
+import time
 from typing import Dict, Optional, Set, Tuple, TYPE_CHECKING
 
 from src.environment.grid import CellType
@@ -40,6 +41,7 @@ class Agent:
     INITIAL_BATTERY: int = 500
     VISIBILITY_RADIUS: int = 2   # default, sovrascrivibile
     COMM_RADIUS: int = 2
+    DEFERRED_PICKUP_MESSAGE_SECONDS: float = 3.0
 
     def __init__(
         self,
@@ -71,6 +73,11 @@ class Agent:
 
         # Oggetti rilevati ma non ancora raccolti
         self.known_objects: Set[Tuple[int, int]] = set()
+
+        # Pacco visto mentre era occupato: usato dal renderer per mostrare
+        # il fumetto "Ora torno a prenderlo" finche' non viene raccolto.
+        self.deferred_pickup_target: Optional[Tuple[int, int]] = None
+        self.deferred_pickup_message_deadline: Optional[float] = None
 
         # Posizioni note di altri agenti: id → (posizione, tick_osservazione)
         # Aggiornato per visibilità diretta e per comunicazione transitiva.
@@ -106,6 +113,15 @@ class Agent:
     def is_active(self) -> bool:
         return self.state != AgentState.DEPLETED
 
+    @property
+    def has_deferred_pickup_message(self) -> bool:
+        """True se il messaggio "Ora torno a prenderlo" deve essere visibile."""
+        if self.deferred_pickup_target is None:
+            return False
+        if self.deferred_pickup_message_deadline is None:
+            return True
+        return time.monotonic() <= self.deferred_pickup_message_deadline
+
     # ------------------------------------------------------------------
     # Percezione
     # ------------------------------------------------------------------
@@ -129,11 +145,34 @@ class Agent:
 
         # Rileva oggetti nel campo visivo
         detected = env.sense_objects(visible)
+
+        # Se trasporta gia' un oggetto e ne scopre uno nuovo, marca il target
+        # per mostrare il messaggio nel renderer.
+        newly_detected = detected - self.known_objects
+        if self.carrying_object and self.deferred_pickup_target is None and newly_detected:
+            self.deferred_pickup_target = min(
+                newly_detected,
+                key=lambda p: abs(p[0] - self.row) + abs(p[1] - self.col),
+            )
+            self.deferred_pickup_message_deadline = (
+                time.monotonic() + self.DEFERRED_PICKUP_MESSAGE_SECONDS
+            )
+
         self.known_objects.update(detected)
 
         # Rimuovi voci stale: celle visibili senza più un oggetto
         # (oggetti già raccolti da altri agenti)
         self.known_objects -= (visible - detected)
+
+        # Se il pacco target non esiste piu', rimuovi il messaggio.
+        if self.deferred_pickup_target is not None:
+            message_expired = (
+                self.deferred_pickup_message_deadline is not None
+                and time.monotonic() > self.deferred_pickup_message_deadline
+            )
+            if self.deferred_pickup_target not in self.known_objects or message_expired:
+                self.deferred_pickup_target = None
+                self.deferred_pickup_message_deadline = None
 
         return visible
 
@@ -166,6 +205,9 @@ class Agent:
         if env.pickup_object(self.row, self.col):
             self.carrying_object = True
             self.known_objects.discard(self.pos)
+            if self.deferred_pickup_target == self.pos:
+                self.deferred_pickup_target = None
+                self.deferred_pickup_message_deadline = None
             self.state = AgentState.CARRYING
             return True
         return False

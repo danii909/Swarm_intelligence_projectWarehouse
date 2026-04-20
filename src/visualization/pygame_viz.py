@@ -80,6 +80,8 @@ AGENT_COLORS = [
     (255, 180,  50),  # ambra
 ]
 
+DEFERRED_PICKUP_MSG = "Ora torno a prenderlo"
+
 
 # ---------------------------------------------------------------------------
 # Visualizzatore Pygame
@@ -403,6 +405,31 @@ class PygameVisualizer(BaseVisualizer):
             # ID agente
             lbl = self._font_sm.render(str(i), True, (0, 0, 0))
             screen.blit(lbl, (cx - lbl.get_width() // 2, cy - lbl.get_height() // 2))
+
+            if agent.has_deferred_pickup_message:
+                self._draw_agent_message(screen, cx, cy, DEFERRED_PICKUP_MSG)
+
+    def _draw_agent_message(self, screen, cx: int, cy: int, text: str) -> None:
+        """Disegna un fumetto sopra l'agente che si muove insieme a lui."""
+        pygame = self._pygame
+        margin = 6
+
+        txt = self._font_sm.render(text, True, (245, 245, 245))
+        bubble_w = txt.get_width() + margin * 2
+        bubble_h = txt.get_height() + margin * 2
+
+        x = cx - bubble_w // 2
+        y = cy - 26 - bubble_h
+
+        # Clamp al bordo della griglia per evitare tagli laterali.
+        max_x = self._size * self.cell_px - bubble_w - 2
+        x = max(2, min(x, max_x))
+
+        bubble = pygame.Surface((bubble_w, bubble_h), pygame.SRCALPHA)
+        pygame.draw.rect(bubble, (20, 24, 36, 220), pygame.Rect(0, 0, bubble_w, bubble_h), border_radius=8)
+        pygame.draw.rect(bubble, (210, 210, 210, 230), pygame.Rect(0, 0, bubble_w, bubble_h), 1, border_radius=8)
+        bubble.blit(txt, (margin, margin))
+        screen.blit(bubble, (x, y))
 
     def _draw_hud(
         self, screen, tick: int, agents: List["Agent"], env: "Environment"
