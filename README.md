@@ -27,6 +27,8 @@ source .venv/bin/activate
 
 # 2. Install dependencies
 pip install -r requirements.txt
+# or with uv (recommended)
+uv pip install -r requirements.txt
 
 # 3. Launch the app
 streamlit run app.py
@@ -38,6 +40,8 @@ Open your browser at **`http://localhost:8501`** — you'll see the interactive 
 - Real-time metrics & battery monitoring
 - Preset save/load
 - Benchmark mode for batch testing
+
+Note: this project uses `pygame-ce` (drop-in compatible with `import pygame`) to ensure reliable wheel installs on modern Windows/Python setups.
 
 ---
 
