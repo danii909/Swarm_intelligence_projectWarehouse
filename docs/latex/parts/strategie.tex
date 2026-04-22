@@ -64,10 +64,21 @@ locale nelle decisioni di movimento.
 Euristica condivisa da pi\'u strategie (Smart Random Walk e Greedy).
 Per una cella candidata~$t$ il guadagno informativo \`e il numero di celle non ancora viste
 che l'agente osserverebbe se si trovasse in~$t$:
-$$\text{info\_gain}(t) = \bigl|\,\{(r,c) : |r - t_r| + |c - t_c| \le v_r
-      \;\wedge\; (r,c) \notin \text{seen\_cells}\}\,\bigr|$$
-dove $v_r$ \`e il raggio di visibilit\`a dell'agente. Valori alti indicano zone dense
-di celle inesplorate e guidano l'agente verso le aree pi\`u informative.
+$$\text{info\_gain}(t) = \left|\,\left\{(r,c) \in \mathcal{V}(t) : (r,c) \notin \text{seen\_cells}\right\}\,\right|$$
+con
+$$\mathcal{V}(t)=\left\{(r,c): |r-t_r|+|c-t_c|\le v_r\right\}.$$
+Significato dei termini:
+\begin{itemize}
+  \item $t=(t_r,t_c)$: cella candidata verso cui l'agente sta valutando di muoversi;
+  \item $r,c$: indici di riga e colonna di una cella della griglia;
+  \item $|r-t_r|+|c-t_c|$: distanza di Manhattan tra la cella $(r,c)$ e il target $t$;
+  \item $v_r$: raggio di visibilit\`a dell'agente; definisce il \emph{diamante} di celle
+        osservabili da $t$ (insieme $\mathcal{V}(t)$);
+  \item $\text{seen\_cells}$: insieme delle celle gi\`a osservate in precedenza
+        dall'agente;
+\end{itemize}
+In pratica, $\text{info\_gain}(t)$ conta quanta nuova informazione produrrebbe il target
+$t$: valori alti favoriscono zone con maggiore densit\`a di celle ancora inesplorate.
 
 % ------------------------------------------------------------------
 \section{Smart Random Walk}
